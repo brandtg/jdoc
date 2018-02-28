@@ -180,12 +180,14 @@ def index(maven_repo, index_dir):
                 try:
                     # Extract source files
                     source_dir = os.path.dirname(source_jar.replace(maven_repo, index_source_dir))
-                    with zipfile.ZipFile(source_jar, 'r') as zf:
-                        zf.extractall(source_dir)
+                    if not os.path.exists(source_dir):
+                        with zipfile.ZipFile(source_jar, 'r') as zf:
+                            zf.extractall(source_dir)
 
                     # Generate Javadoc
                     doc_dir = os.path.dirname(source_jar.replace(maven_repo, index_doc_dir))
-                    subprocess.call(['javadoc', '-sourcepath', source_dir, '-d', doc_dir, '-subpackages', '.'])
+                    if not os.path.exists(doc_dir):
+                        subprocess.call(['javadoc', '-sourcepath', source_dir, '-d', doc_dir, '-subpackages', '.'])
                 except Exception as e:
                     print 'Error!', e
 
