@@ -41,6 +41,12 @@ Or according to certain [Maven Coordinates](https://maven.apache.org/pom.html#Ma
 ./bin/jdoc --group org.apache.httpcomponents --artifact httpclient --version 4.5.3
 ```
 
+Or regular expression
+
+```
+./bin/jdoc 'com.(airbnb|google)'
+```
+
 Show plaintext Javadoc for a class
 
 ```
