@@ -1,7 +1,9 @@
 jdoc
 ====
 
-A pydoc-like tool for interacting with Javadoc (because I gave up IntelliJ for Lent).
+A pydoc-like tool for interacting with Javadoc 
+
+(Because I gave up IntelliJ for Lent)
 
 _Warning: In a very hacky state and under development_
 

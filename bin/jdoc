@@ -172,6 +172,8 @@ def index(maven_repo, index_dir):
     """
     index_source_dir = os.path.join(index_dir, 'sources')
     index_doc_dir = os.path.join(index_dir, 'docs')
+
+    # Maven repository
     for root, dirnames, filenames in os.walk(maven_repo):
         for filename in filenames:
             if filename.endswith('-sources.jar'):
@@ -190,6 +192,29 @@ def index(maven_repo, index_dir):
                         subprocess.call(['javadoc', '-sourcepath', source_dir, '-d', doc_dir, '-subpackages', '.'])
                 except Exception as e:
                     print 'Error!', e
+
+    # Standard library
+    if 'JAVA_HOME' in os.environ:
+        source_jar = os.path.join(os.environ['JAVA_HOME'], 'src.zip')
+        jdk_coordinates = ('java', 'stdlib', os.environ['JAVA_HOME'].split(os.path.sep)[-3])
+
+        # Extract source files
+        source_dir = os.path.join(
+                os.path.dirname(source_jar.replace(os.environ['JAVA_HOME'], index_source_dir)),
+                'repository',
+                os.path.sep.join(jdk_coordinates))
+        if not os.path.exists(source_dir):
+            with zipfile.ZipFile(source_jar, 'r') as zf:
+                zf.extractall(source_dir)
+
+        # Generate Javadoc
+        doc_dir = os.path.join(
+                os.path.dirname(source_jar.replace(os.environ['JAVA_HOME'], index_doc_dir)),
+                'repository',
+                os.path.sep.join(jdk_coordinates))
+        if not os.path.exists(doc_dir):
+            subprocess.call(['javadoc', '-sourcepath', source_dir, '-d', doc_dir, '-subpackages', '.'])
+
 
 
 def server(index_dir, server_port):
@@ -307,5 +332,3 @@ if __name__ == '__main__':
         for pattern in patterns:
             query(args.index_dir, pattern, 
                     group=args.group, artifact=args.artifact, version=args.version)
-
-            
