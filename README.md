@@ -47,8 +47,14 @@ Or regular expression
 ./bin/jdoc 'com.(airbnb|google)'
 ```
 
-Show plaintext Javadoc for a class
+Show plaintext Javadoc for a class (note: need to narrow down parameters to get one match)
 
 ```
 ./bin/jdoc org.apache.http.client.HttpClient
+```
+
+Or dump the source
+
+```
+./bin/jdoc org.apache.http.client.HttpClient --show_source
 ```
