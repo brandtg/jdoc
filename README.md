@@ -8,6 +8,13 @@ _Warning: In a very hacky state and under development_
 Usage
 -----
 
+```
+./bin/jdoc -h
+```
+
+Examples
+-----
+
 Index all documents in local maven repo
 
 ```

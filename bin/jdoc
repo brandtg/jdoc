@@ -29,6 +29,7 @@ UNDERLINE = '\033[4m'
 END = '\033[0m'
 
 
+# Ignore these non-class files
 BLACKLIST = [
         'allclasses-frame.html',
         'allclasses-noframe.html',
@@ -53,6 +54,9 @@ BLACKLIST = [
 def _parse_coordinates(index_dir, path):
     """
     Returns the Maven coordinates from the path.
+
+    :param index_dir: The directory that index(...) wrote to
+    :param path: Path to directory that contains index.html (i.e. root of module)
     """
     tokens = path.replace(index_dir + '/docs/repository/', '').split('/')
     return {
@@ -64,6 +68,11 @@ def _parse_coordinates(index_dir, path):
 
 
 def _parse_cli_doc(path):
+    """
+    Returns an object that represents the attributes on the Javadoc page.
+
+    :param path: The path to Javadoc rendered as HTML.
+    """
     cli_doc = {}
 
     with open(path, 'r') as f:
@@ -113,7 +122,9 @@ def _render_cli_doc(cli_doc):
     """
     Renders a CLI-friendly version of Javadoc.
 
-    TODO jinja? Text justifying?
+    :param cli_doc: The output of _render_cli_doc(...)
+
+    TODO templatize this? Janky now
     """
     print BOLD + 'PACKAGE' + END
     print '\t' + cli_doc['package']
@@ -140,7 +151,14 @@ def _render_cli_doc(cli_doc):
         print
     print
 
+
 def _render_class_name(coordinate, path):
+    """
+    Renders tab-separated coordintates / fully-qualified class name.
+
+    :param coordinate: Maven coordinates for module
+    :param path: Path to class's HTML Javadoc file
+    """
     class_name = path.replace(coordinate['path'], '').replace('.html', '').replace('/', '.')[1:]
     return '{group}:{artifact}:{version}'.format(**coordinate) + '\t' + class_name
 
@@ -191,6 +209,9 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None):
 
     :param index_dir: The directory that index(...) wrote to
     :param pattern: Package prefix or fully-qualified class name
+    :param group: Maven coordinates group (e.g. org.apache.httpcomponents)
+    :param artifact: Maven coordinates artifact (e.g. httpclient)
+    :param version: Maven coordinates version (e.g. 4.5.3)
     """
     if class_pattern:
         class_pattern = class_pattern.replace('.', '/')
@@ -226,8 +247,31 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None):
             print class_name
 
 
+EXAMPLES = """\
+# Index all documents in local maven repo
+./bin/jdoc --index
+
+# Run simple HTTP file server
+./bin/jdoc --server
+
+# List classes matching a prefix pattern
+./bin/jdoc org.apache
+
+# Or according to certain Maven Coordinates
+./bin/jdoc --group org.apache.httpcomponents \
+    --artifact httpclient \
+    --version 4.5.3
+
+# Show plaintext Javadoc for a class
+./bin/jdoc org.apache.http.client.HttpClient
+"""
+
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+            description='pydoc-like tool for interacting with Javadoc',
+            formatter_class=argparse.RawTextHelpFormatter,
+            epilog=EXAMPLES)
 
     # Indexing args
     parser.add_argument('--index', action='store_true')
@@ -261,3 +305,5 @@ if __name__ == '__main__':
         for pattern in patterns:
             query(args.index_dir, pattern, 
                     group=args.group, artifact=args.artifact, version=args.version)
+
+            
