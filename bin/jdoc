@@ -124,7 +124,11 @@ def _parse_cli_doc(path):
         cli_doc['inheritance'] = [ih.find('li').text for ih in soup.find_all('ul', {'class': 'inheritance'})]
 
         # Description
-        cli_doc['description'] = soup.find('div', {'class': 'description'}).find('div', {'class': 'block'}).text
+        description_elt = soup.find('div', {'class': 'description'})
+        if description_elt:
+            description_elt = description_elt.find('div', {'class': 'block'})
+            if description_elt:
+                cli_doc['description'] = description_elt.text
 
         # TODO Constructor Summary
 
@@ -152,7 +156,6 @@ def _parse_cli_doc(path):
 
         # TODO Details
 
-    print cli_doc
     return cli_doc
 
 
@@ -178,10 +181,11 @@ def _render_cli_doc(cli_doc):
         print '\t' + i * '    ' + cli_doc['inheritance'][i]
     print
 
-    print BOLD + 'DESCRIPTION' + END
-    print
-    print '\t' + cli_doc['description']
-    print
+    if 'description' in cli_doc:
+        print BOLD + 'DESCRIPTION' + END
+        print
+        print '\t' + cli_doc['description']
+        print
 
     print BOLD + 'METHOD SUMMARY' + END
     print
