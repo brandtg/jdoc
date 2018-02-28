@@ -38,6 +38,7 @@ sys.setdefaultencoding('UTF8')
 BOLD = '\033[1m'
 UNDERLINE = '\033[4m'
 END = '\033[0m'
+TERMINAL_SIZE = 60 # TODO More dynamic
 
 
 # Ignore these non-class files
@@ -60,6 +61,31 @@ BLACKLIST = [
         'serialized-form.html',
         'stylesheet.css',
         ]
+
+
+def _justify_text(raw, length):
+    """
+    Returns lines that are ~= length.
+    """
+    tokens = raw.split()
+    lines = []
+    line = []
+    line_size = 0
+
+    for token in tokens:
+        marginal_length = len(token) + 1 # for space
+        if line_size + marginal_length <= length:
+            line.append(token)
+            line_size += marginal_length
+        else:
+            lines.append(' '.join(line))
+            line = []
+            line_size = 0
+
+    if len(line) > 0:
+        lines.append(' '.join(line))
+
+    return lines
 
 
 def _parse_coordinates(index_dir, path):
@@ -116,17 +142,17 @@ def _parse_cli_doc(path):
             if col_last:
                 method = col_last.find('code')
                 if method:
-                    method_summary['method'] = method.text
+                    method_summary['method'] = ' '.join(method.text.split())
                 description = col_last.find('div')
                 if description:
-                    method_summary['description'] = description.text
+                    method_summary['description'] = ' '.join(description.text.split())
 
             if method_summary:
-                # TODO This is wrapping weirdly... format it better
                 cli_doc['method_summary'].append(method_summary)
 
         # TODO Details
 
+    print cli_doc
     return cli_doc
 
 
@@ -137,27 +163,33 @@ def _render_cli_doc(cli_doc):
     :param cli_doc: The output of _render_cli_doc(...)
     """
     print BOLD + 'PACKAGE' + END
+    print
     print '\t' + cli_doc['package']
     print
 
     print BOLD + 'CLASS' + END
+    print
     print '\t' + cli_doc['class']
     print
 
     print BOLD + 'INHERITANCE' + END
+    print
     for i in xrange(len(cli_doc['inheritance'])):
         print '\t' + i * '    ' + cli_doc['inheritance'][i]
     print
 
     print BOLD + 'DESCRIPTION' + END
+    print
     print '\t' + cli_doc['description']
     print
 
     print BOLD + 'METHOD SUMMARY' + END
+    print
     for ms in cli_doc['method_summary']:
-        print '\t' + ms['return_type'] + ' ' + ms['method']
+        print '\t' + BOLD + ms['return_type'] + ' ' + ms['method'] + END
         if 'description' in ms:
-            print '\t| ' + ms['description']
+            for line in _justify_text(ms['description'], TERMINAL_SIZE):
+                print '\t| ' + line
         print
     print
 
