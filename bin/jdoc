@@ -52,7 +52,7 @@ BLACKLIST = [
 
 def _parse_coordinates(index_dir, path):
     """
-    Returns the Ivy coordinates from the path.
+    Returns the Maven coordinates from the path.
     """
     tokens = path.replace(index_dir + '/docs/repository/', '').split('/')
     return {
@@ -192,7 +192,8 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None):
     :param index_dir: The directory that index(...) wrote to
     :param pattern: Package prefix or fully-qualified class name
     """
-    class_pattern = class_pattern.replace('.', '/')
+    if class_pattern:
+        class_pattern = class_pattern.replace('.', '/')
 
     # Find all artifact coordinates (i.e. things with index.html files)
     coordinates = []
@@ -213,7 +214,7 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None):
         for root, dirnames, filenames in os.walk(coordinate['path']):
             for filename in filenames:
                 path = os.path.join(root, filename)
-                if class_pattern in path and filename not in BLACKLIST:
+                if (not class_pattern or class_pattern in path) and filename not in BLACKLIST:
                     doc_files.append((coordinate, path))
 
     if len(doc_files) == 1:
@@ -240,9 +241,9 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--server_port', type=int, default=9999, help='Server port')
 
     # Query args
-    parser.add_argument('-g', '--group', help='Ivy group')
-    parser.add_argument('-a', '--artifact', help='Ivy artifact')
-    parser.add_argument('-v', '--version', help='Ivy version')
+    parser.add_argument('-g', '--group', help='Maven group')
+    parser.add_argument('-a', '--artifact', help='Maven artifact')
+    parser.add_argument('-v', '--version', help='Maven version')
     parser.add_argument('patterns', nargs='*', help='Class name pattern(s)')
 
     args = parser.parse_args()
@@ -256,5 +257,7 @@ if __name__ == '__main__':
         server(args.index_dir, args.server_port)
     else:
         # Output to CLI
-        for pattern in args.patterns:
-            query(args.index_dir, pattern, group=args.group, artifact=args.artifact, version=args.version)
+        patterns = args.patterns if args.patterns else [None]
+        for pattern in patterns:
+            query(args.index_dir, pattern, 
+                    group=args.group, artifact=args.artifact, version=args.version)
