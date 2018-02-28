@@ -159,8 +159,21 @@ def _render_class_name(coordinate, path):
     :param coordinate: Maven coordinates for module
     :param path: Path to class's HTML Javadoc file
     """
-    class_name = path.replace(coordinate['path'], '').replace('.html', '').replace('/', '.')[1:]
-    return '{group}:{artifact}:{version}'.format(**coordinate) + '\t' + class_name
+    return path.replace(coordinate['path'], '').replace('.html', '').replace('/', '.')[1:]
+
+
+def _render_coordinate(coordinate):
+    """
+    Renders Maven coordinate string.
+    """
+    return '{group}:{artifact}:{version}'.format(**coordinate)
+
+
+def _render_list_element(coordinate, path):
+    """
+    Renders tab-separated Maven coordinates and class name.
+    """
+    return _render_coordinate(coordinate) + '\t' + _render_class_name(coordinate, path)
 
 
 def index(maven_repo, index_dir):
@@ -241,7 +254,7 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None):
     :param version: Maven coordinates version (e.g. 4.5.3)
     """
     if class_pattern:
-        class_pattern = class_pattern.replace('.', '/')
+        class_pattern_regex = re.compile(class_pattern)
 
     # Find all artifact coordinates (i.e. things with index.html files)
     coordinates = []
@@ -262,7 +275,8 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None):
         for root, dirnames, filenames in os.walk(coordinate['path']):
             for filename in filenames:
                 path = os.path.join(root, filename)
-                if (not class_pattern or class_pattern in path) and filename not in BLACKLIST:
+                class_name = _render_class_name(coordinate, path)
+                if (not class_pattern or class_pattern_regex.match(class_name)) and filename not in BLACKLIST:
                     doc_files.append((coordinate, path))
 
     if len(doc_files) == 1:
@@ -270,7 +284,7 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None):
         _render_cli_doc(_parse_cli_doc(doc_files[0][1]))
     else:
         # List the matches as fully-qualified class names
-        for class_name in sorted([_render_class_name(*doc_file) for doc_file in doc_files]):
+        for class_name in sorted([_render_list_element(*doc_file) for doc_file in doc_files]):
             print class_name
 
 
