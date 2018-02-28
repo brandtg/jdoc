@@ -1,0 +1,146 @@
+#!/usr/bin/env python
+import argparse
+import os
+import subprocess
+import zipfile
+import SimpleHTTPServer
+import SocketServer
+import re
+
+BLACKLIST = [
+        'package-frame.html',
+        'package-summary.html',
+        'package-tree.html',
+        ]
+
+def _parse_coordinates(index_dir, path):
+    """
+    Returns the Ivy coordinates from the path.
+    """
+    tokens = path.replace(index_dir + '/docs/repository/', '').split('/')
+    return {
+        'group': '.'.join(tokens[0:-2]),
+        'artifact': tokens[-2],
+        'version': tokens[-1],
+        'path': path,
+    }
+
+
+def _render_cli(path):
+    print 'TODO Render!', path
+    pass
+
+
+def index(maven_repo, index_dir):
+    """
+    Creates javadoc for all sources in local maven repository
+
+    :param maven_repo: Local maven repository containing sources.
+    :param index_dir: Output Javadoc to this directory.
+    """
+    index_source_dir = os.path.join(index_dir, 'sources')
+    index_doc_dir = os.path.join(index_dir, 'docs')
+    for root, dirnames, filenames in os.walk(maven_repo):
+        for filename in filenames:
+            if filename.endswith('-sources.jar'):
+                source_jar = os.path.join(root, filename)
+                print 'Indexing', source_jar
+                try:
+                    # Extract source files
+                    source_dir = os.path.dirname(source_jar.replace(maven_repo, index_source_dir))
+                    with zipfile.ZipFile(source_jar, 'r') as zf:
+                        zf.extractall(source_dir)
+
+                    # Generate Javadoc
+                    doc_dir = os.path.dirname(source_jar.replace(maven_repo, index_doc_dir))
+                    subprocess.call(['javadoc', '-sourcepath', source_dir, '-d', doc_dir, '-subpackages', '.'])
+                except Exception as e:
+                    print 'Error!', e
+
+
+def server(index_dir, server_port):
+    """
+    Starts a simple fileserver for docs / sources.
+
+    :param index_dir: The directory that index(...) wrote to
+    :param server_port: Bind fileserver to this port
+    """
+    os.chdir(os.path.join(index_dir))
+    httpd = SocketServer.TCPServer(('', server_port), SimpleHTTPServer.SimpleHTTPRequestHandler)
+    print 'Serving at port', server_port
+    httpd.serve_forever()
+
+
+def query(index_dir, class_pattern, group=None, artifact=None, version=None):
+    """
+    Generate CLI readable docs for a class
+
+    :param index_dir: The directory that index(...) wrote to
+    :param pattern: Package prefix or fully-qualified class name
+    """
+    class_pattern = class_pattern.replace('.', '/')
+
+    # Find all artifact coordinates (i.e. things with index.html files)
+    coordinates = []
+    for root, dirnames, filenames in os.walk(os.path.join(index_dir, 'docs')):
+        for filename in filenames:
+            if filename == 'index.html':
+                coordinates.append(_parse_coordinates(index_dir, root))
+
+    # Filter coordinates
+    filtered_coordinates = [c for c in coordinates if \
+            (not group or c['group'] == group) and \
+            (not artifact or c['artifact'] == artifact) and \
+            (not version or c['version'] == version)]
+
+    # Search for class pattern within those coordinates
+    doc_files = []
+    for coordinate in filtered_coordinates:
+        for root, dirnames, filenames in os.walk(coordinate['path']):
+            for filename in filenames:
+                path = os.path.join(root, filename)
+                if class_pattern in path and filename not in BLACKLIST:
+                    doc_files.append((coordinate, path))
+
+    if len(doc_files) == 1:
+        # Render CLI version of the doc
+        _render_cli(doc_files[0][1])
+    else:
+        # List the matches as fully-qualified class names
+        for doc_file in doc_files:
+            print doc_file[1].replace(doc_file[0]['path'], '').replace('.html', '').replace('/', '.')[1:]
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    # Indexing args
+    parser.add_argument('--index', action='store_true')
+    parser.add_argument('-m', '--maven_repo', 
+            help='Local maven repository', default=os.path.join(os.environ['HOME'], '.m2'))
+    parser.add_argument('-d', '--index_dir', 
+            help='Javadoc index directory', default=os.path.join(os.environ['HOME'], '.jdoc'))
+
+    # Serving args
+    parser.add_argument('--server', action='store_true')
+    parser.add_argument('-p', '--server_port', type=int, default=9999, help='Server port')
+
+    # Query args
+    parser.add_argument('-g', '--group', help='Ivy group')
+    parser.add_argument('-a', '--artifact', help='Ivy artifact')
+    parser.add_argument('-v', '--version', help='Ivy version')
+    parser.add_argument('patterns', nargs='*', help='Class name pattern(s)')
+
+    args = parser.parse_args()
+
+    # (Optionally) index before the query
+    if args.index:
+        index(args.maven_repo, args.index_dir)
+
+    if args.server:
+        # Serve HTML
+        server(args.index_dir, args.server_port)
+    else:
+        # Output to CLI
+        for pattern in args.patterns:
+            query(args.index_dir, pattern, group=args.group, artifact=args.artifact, version=args.version)
