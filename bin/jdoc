@@ -285,7 +285,7 @@ def server(index_dir, server_port):
     httpd.serve_forever()
 
 
-def query(index_dir, class_pattern, group=None, artifact=None, version=None):
+def query(index_dir, class_pattern, group=None, artifact=None, version=None, show_source=False):
     """
     Generate CLI readable docs for a class
 
@@ -322,8 +322,18 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None):
                     doc_files.append((coordinate, path))
 
     if len(doc_files) == 1:
-        # Render CLI version of the doc
-        _render_cli_doc(_parse_cli_doc(doc_files[0][1]))
+        if show_source:
+            # Print source directly
+            source_file = doc_files[0][1] \
+                .replace(
+                    os.path.join(index_dir, 'docs'),
+                    os.path.join(index_dir, 'sources')) \
+                .replace('.html', '.java')
+            with open(source_file, 'r') as f:
+                print f.read()
+        else:
+            # Render CLI version of the doc
+            _render_cli_doc(_parse_cli_doc(doc_files[0][1]))
     else:
         # List the matches as fully-qualified class names
         for class_name in sorted([_render_list_element(*doc_file) for doc_file in doc_files]):
@@ -373,6 +383,7 @@ if __name__ == '__main__':
     parser.add_argument('-g', '--group', help='Maven group')
     parser.add_argument('-a', '--artifact', help='Maven artifact')
     parser.add_argument('-v', '--version', help='Maven version')
+    parser.add_argument('-s', '--show_source', action='store_true', help='Show source instead of doc')
     parser.add_argument('patterns', nargs='*', help='Class name pattern(s)')
 
     args = parser.parse_args()
@@ -389,4 +400,5 @@ if __name__ == '__main__':
         patterns = args.patterns if args.patterns else [None]
         for pattern in patterns:
             query(args.index_dir, pattern, 
-                    group=args.group, artifact=args.artifact, version=args.version)
+                    group=args.group, artifact=args.artifact, version=args.version, 
+                    show_source=args.show_source)
