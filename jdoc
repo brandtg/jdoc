@@ -6,12 +6,34 @@ import zipfile
 import SimpleHTTPServer
 import SocketServer
 import re
+from bs4 import BeautifulSoup
+
+
+BOLD = '\033[1m'
+UNDERLINE = '\033[4m'
+END = '\033[0m'
+
 
 BLACKLIST = [
+        'allclasses-frame.html',
+        'allclasses-noframe.html',
+        'constant-values.html',
+        'deprecated-list.html',
+        'help-doc.html',
+        'index-all.html',
+        'index.html',
+        'overview-frame.html',
+        'overview-summary.html',
+        'overview-tree.html',
         'package-frame.html',
+        'package-list',
         'package-summary.html',
         'package-tree.html',
+        'script.js',
+        'serialized-form.html',
+        'stylesheet.css',
         ]
+
 
 def _parse_coordinates(index_dir, path):
     """
@@ -26,9 +48,86 @@ def _parse_coordinates(index_dir, path):
     }
 
 
-def _render_cli(path):
-    print 'TODO Render!', path
-    pass
+def _parse_cli_doc(path):
+    cli_doc = {}
+
+    with open(path, 'r') as f:
+        soup = BeautifulSoup(f.read(), 'html.parser')
+
+        # Header
+        header = soup.find('div', {'class': 'header'})
+        cli_doc['package'] = header.find('div', {'class': 'subTitle'}).text
+        cli_doc['class'] = header.find('h2', {'class': 'title'}).text
+
+        # Inheritance
+        cli_doc['inheritance'] = [ih.find('li').text for ih in soup.find_all('ul', {'class': 'inheritance'})]
+
+        # Description
+        cli_doc['description'] = soup.find('div', {'class': 'description'}).find('div', {'class': 'block'}).text
+
+        # TODO Constructor Summary
+
+        # Method Summary
+        cli_doc['method_summary'] = []
+        method_summary_table = [elt for elt in soup.find_all('h3') if elt.text == 'Method Summary'][0].next_sibling.next_sibling
+        for row in method_summary_table.find_all('tr'):
+            method_summary = {}
+
+            col_first = row.find('td', {'class': 'colFirst'})
+            if col_first:
+                method_summary['return_type'] = col_first.text
+
+            col_last = row.find('td', {'class': 'colLast'})
+            if col_last:
+                method = col_last.find('code')
+                if method:
+                    method_summary['method'] = method.text
+                description = col_last.find('div')
+                if description:
+                    method_summary['description'] = description.text
+
+            if method_summary:
+                cli_doc['method_summary'].append(method_summary)
+
+        # TODO Details
+
+    return cli_doc
+
+
+def _render_cli_doc(cli_doc):
+    """
+    Renders a CLI-friendly version of Javadoc.
+
+    TODO jinja? Text justifying?
+    """
+    print BOLD + 'PACKAGE' + END
+    print '\t' + cli_doc['package']
+    print
+
+    print BOLD + 'CLASS' + END
+    print '\t' + cli_doc['class']
+    print
+
+    print BOLD + 'INHERITANCE' + END
+    for i in xrange(len(cli_doc['inheritance'])):
+        print '\t' + i * '    ' + cli_doc['inheritance'][i]
+    print
+
+    print BOLD + 'DESCRIPTION' + END
+    print '\t' + cli_doc['description']
+    print
+
+    print BOLD + 'METHOD SUMMARY' + END
+    for ms in cli_doc['method_summary']:
+        print '\t' + ms['return_type'] + ' ' + ms['method']
+        if 'description' in ms:
+            print '\t| ' + ms['description']
+        print
+    print
+
+def _render_class_name(coordinate, path):
+    class_name = path.replace(coordinate['path'], '').replace('.html', '').replace('/', '.')[1:]
+    return '{group}:{artifact}:{version}'.format(**coordinate) + '\t' + class_name
 
 
 def index(maven_repo, index_dir):
@@ -104,11 +203,11 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None):
 
     if len(doc_files) == 1:
         # Render CLI version of the doc
-        _render_cli(doc_files[0][1])
+        _render_cli_doc(_parse_cli_doc(doc_files[0][1]))
     else:
         # List the matches as fully-qualified class names
-        for doc_file in doc_files:
-            print doc_file[1].replace(doc_file[0]['path'], '').replace('.html', '').replace('/', '.')[1:]
+        for class_name in sorted([_render_class_name(*doc_file) for doc_file in doc_files]):
+            print class_name
 
 
 if __name__ == '__main__':
