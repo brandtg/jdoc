@@ -14,14 +14,20 @@
 # see the license for the specific language governing permissions and
 # limitations under the license.
 #
-import argparse
-import os
-import subprocess
-import zipfile
+from bs4 import BeautifulSoup
 import SimpleHTTPServer
 import SocketServer
+import argparse
+import os
 import re
-from bs4 import BeautifulSoup
+import subprocess
+import sys
+import zipfile
+
+
+# Use UTF8 default encoding
+reload(sys)
+sys.setdefaultencoding('UTF8')
 
 
 BOLD = '\033[1m'
