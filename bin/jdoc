@@ -355,8 +355,14 @@ EXAMPLES = """\
     --artifact httpclient \
     --version 4.5.3
 
+# Or regular expression
+./bin/jdoc 'com.(airbnb|google)'
+
 # Show plaintext Javadoc for a class
 ./bin/jdoc org.apache.http.client.HttpClient
+
+# Or dump the source
+./bin/jdoc org.apache.http.client.HttpClient --show_source
 """
 
 
