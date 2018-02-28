@@ -14,6 +14,11 @@
 # see the license for the specific language governing permissions and
 # limitations under the license.
 #
+# Possible improvements
+# ---
+# * TODO Support using pre-compiled Javadoc jars
+# * TODO Jinja-templatized CLI doc
+#
 from bs4 import BeautifulSoup
 import SimpleHTTPServer
 import SocketServer
@@ -117,6 +122,7 @@ def _parse_cli_doc(path):
                     method_summary['description'] = description.text
 
             if method_summary:
+                # TODO This is wrapping weirdly... format it better
                 cli_doc['method_summary'].append(method_summary)
 
         # TODO Details
@@ -129,8 +135,6 @@ def _render_cli_doc(cli_doc):
     Renders a CLI-friendly version of Javadoc.
 
     :param cli_doc: The output of _render_cli_doc(...)
-
-    TODO templatize this? Janky now
     """
     print BOLD + 'PACKAGE' + END
     print '\t' + cli_doc['package']
@@ -182,35 +186,67 @@ def _render_list_element(coordinate, path):
     return _render_coordinate(coordinate) + '\t' + _render_class_name(coordinate, path)
 
 
-def index(maven_repo, index_dir):
+def index(maven_repo, gradle_repo, index_dir):
     """
-    Creates javadoc for all sources in local maven repository
+    Creates javadoc for all locally installed sources.
 
     :param maven_repo: Local maven repository containing sources.
+    :param gradle_repo: Local gradle repository containing sources.
     :param index_dir: Output Javadoc to this directory.
     """
     index_source_dir = os.path.join(index_dir, 'sources')
     index_doc_dir = os.path.join(index_dir, 'docs')
 
     # Maven repository
-    for root, dirnames, filenames in os.walk(maven_repo):
-        for filename in filenames:
-            if filename.endswith('-sources.jar'):
-                source_jar = os.path.join(root, filename)
-                print 'Indexing', source_jar
-                try:
-                    # Extract source files
-                    source_dir = os.path.dirname(source_jar.replace(maven_repo, index_source_dir))
-                    if not os.path.exists(source_dir):
-                        with zipfile.ZipFile(source_jar, 'r') as zf:
-                            zf.extractall(source_dir)
+    if os.path.exists(maven_repo):
+        for root, dirnames, filenames in os.walk(maven_repo):
+            for filename in filenames:
+                if filename.endswith('-sources.jar'):
+                    source_jar = os.path.join(root, filename)
+                    print 'Indexing', source_jar
+                    try:
+                        # Extract source files
+                        source_dir = os.path.dirname(source_jar.replace(maven_repo, index_source_dir))
+                        if not os.path.exists(source_dir):
+                            with zipfile.ZipFile(source_jar, 'r') as zf:
+                                zf.extractall(source_dir)
 
-                    # Generate Javadoc
-                    doc_dir = os.path.dirname(source_jar.replace(maven_repo, index_doc_dir))
-                    if not os.path.exists(doc_dir):
-                        subprocess.call(['javadoc', '-sourcepath', source_dir, '-d', doc_dir, '-subpackages', '.'])
-                except Exception as e:
-                    print 'Error!', e
+                        # Generate Javadoc
+                        doc_dir = os.path.dirname(source_jar.replace(maven_repo, index_doc_dir))
+                        if not os.path.exists(doc_dir):
+                            subprocess.call(['javadoc', '-sourcepath', source_dir, '-d', doc_dir, '-subpackages', '.'])
+                    except Exception as e:
+                        print 'Error!', e
+
+    # Gradle repository
+    # N.b. path format: {gradle_repo}/caches/modules-2/files-2.1/{group}/{artifact}/{version}/{sha}/{jarfile}
+    if os.path.exists(gradle_repo):
+        for root, dirnames, filenames in os.walk(gradle_repo):
+            for filename in filenames:
+                if filename.endswith('-sources.jar'):
+                    source_jar = os.path.join(root, filename)
+                    print 'Indexing', source_jar
+
+                    try:
+                        # Parse out coordinates
+                        path_tokens = root.replace(gradle_repo, '').split(os.path.sep)
+                        group = path_tokens[4]
+                        artifact = path_tokens[5]
+                        version = path_tokens[6]
+
+                        # Extract source files
+                        source_dir = os.path.join(index_source_dir, 'repository', group.replace('.', '/'), artifact, version)
+                        if not os.path.exists(source_dir):
+                            with zipfile.ZipFile(source_jar, 'r') as zf:
+                                zf.extractall(source_dir)
+
+                        # Generate Javadoc
+                        doc_dir = source_dir.replace(index_source_dir, index_doc_dir)
+                        if not os.path.exists(doc_dir):
+                            subprocess.call(['javadoc', '-sourcepath', source_dir, '-d', doc_dir, '-subpackages', '.'])
+                    except Exception as e:
+                        print 'Error!', e
+
 
     # Standard library
     if 'JAVA_HOME' in os.environ:
@@ -324,6 +360,8 @@ if __name__ == '__main__':
     parser.add_argument('--index', action='store_true')
     parser.add_argument('-m', '--maven_repo', 
             help='Local maven repository', default=os.path.join(os.environ['HOME'], '.m2'))
+    parser.add_argument('-G', '--gradle_repo',
+            help='Local gradle repository', default=os.path.join(os.environ['HOME'], '.gradle'))
     parser.add_argument('-d', '--index_dir', 
             help='Javadoc index directory', default=os.path.join(os.environ['HOME'], '.jdoc'))
 
@@ -341,7 +379,7 @@ if __name__ == '__main__':
 
     # (Optionally) index before the query
     if args.index:
-        index(args.maven_repo, args.index_dir)
+        index(args.maven_repo, args.gradle_repo, args.index_dir)
 
     if args.server:
         # Serve HTML
