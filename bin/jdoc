@@ -307,20 +307,6 @@ def index(maven_repo, gradle_repo, index_dir):
             subprocess.call(['javadoc', '-sourcepath', source_dir, '-d', doc_dir, '-subpackages', '.'])
 
 
-
-def server(index_dir, server_port):
-    """
-    Starts a simple fileserver for docs / sources.
-
-    :param index_dir: The directory that index(...) wrote to
-    :param server_port: Bind fileserver to this port
-    """
-    os.chdir(os.path.join(index_dir))
-    httpd = SocketServer.TCPServer(('', server_port), SimpleHTTPServer.SimpleHTTPRequestHandler)
-    print 'Serving at port', server_port
-    httpd.serve_forever()
-
-
 def query(index_dir, class_pattern, group=None, artifact=None, version=None, show_source=False):
     """
     Generate CLI readable docs for a class
@@ -436,7 +422,10 @@ if __name__ == '__main__':
 
     if args.server:
         # Serve HTML
-        server(args.index_dir, args.server_port)
+        os.chdir(os.path.join(args.index_dir))
+        httpd = SocketServer.TCPServer(('', args.server_port), SimpleHTTPServer.SimpleHTTPRequestHandler)
+        print 'Serving at port', args.server_port
+        httpd.serve_forever()
     else:
         # Output to CLI
         patterns = args.patterns if args.patterns else [None]
