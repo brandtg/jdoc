@@ -362,37 +362,10 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None, sho
             print class_name
 
 
-EXAMPLES = """\
-# Index all documents in local maven repo
-./bin/jdoc --index
-
-# Run simple HTTP file server
-./bin/jdoc --server
-
-# List classes matching a prefix pattern
-./bin/jdoc org.apache
-
-# Or according to certain Maven Coordinates
-./bin/jdoc --group org.apache.httpcomponents \
-    --artifact httpclient \
-    --version 4.5.3
-
-# Or regular expression
-./bin/jdoc 'com.(airbnb|google)'
-
-# Show plaintext Javadoc for a class
-./bin/jdoc org.apache.http.client.HttpClient
-
-# Or dump the source
-./bin/jdoc org.apache.http.client.HttpClient --show_source
-"""
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
             description='pydoc-like tool for interacting with Javadoc',
-            formatter_class=argparse.RawTextHelpFormatter,
-            epilog=EXAMPLES)
+            formatter_class=argparse.RawTextHelpFormatter)
 
     # Indexing args
     parser.add_argument('--index', action='store_true')
