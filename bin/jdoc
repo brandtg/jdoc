@@ -375,6 +375,7 @@ if __name__ == '__main__':
             help='Local gradle repository', default=os.path.join(os.environ['HOME'], '.gradle'))
     parser.add_argument('-d', '--index_dir', 
             help='Javadoc index directory', default=os.path.join(os.environ['HOME'], '.jdoc'))
+    parser.add_argument('-c', '--ctags', action='store_true')
 
     # Serving args
     parser.add_argument('--server', action='store_true')
@@ -392,6 +393,12 @@ if __name__ == '__main__':
     # (Optionally) index before the query
     if args.index:
         index(args.maven_repo, args.gradle_repo, args.index_dir)
+
+    # (Optionally) generate ctags for sources
+    if args.ctags:
+        subprocess.call(['ctags', '--languages=java', '-R', 
+            '-f', os.path.join(os.environ['HOME'], '.jdoc', 'tags'),
+            os.path.join(os.environ['HOME'], '.jdoc', 'sources')])
 
     if args.server:
         # Serve HTML
