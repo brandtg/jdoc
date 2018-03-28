@@ -42,7 +42,7 @@ UNDERLINE = '\033[4m'
 END = '\033[0m'
 TERMINAL_SIZE = 60 # TODO More dynamic
 
-VERSION_PATTERN = re.compile('\d+\.\d+\.\d+')
+VERSION_PATTERN = re.compile('\d+\.\d+') # Have seen when there are only two versions
 
 
 # Ignore these non-class files
