@@ -26,7 +26,7 @@ Index all documents in local maven repo
 Generate ctags for Java sources (for vim, etc.)
 
 ```
-./bin/jdoc --ctags
+./bin/jdoc --index_ctags
 ```
 
 Run simple HTTP file server
@@ -51,6 +51,12 @@ Or regular expression
 
 ```
 ./bin/jdoc 'com.(airbnb|google)'
+```
+
+Search the ctags index (note: slightly different semantics than regular expression search, but much faster)
+
+```
+./bin/jdoc -c HttpClient
 ```
 
 Show plaintext Javadoc for a class (note: need to narrow down parameters to get one match)
