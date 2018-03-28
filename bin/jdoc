@@ -379,6 +379,53 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None, sho
     render(index_dir, doc_files, show_source=show_source)
 
 
+def query_ctags(index_dir, pattern, group=None, artifact=None, version=None, show_source=False):
+    """
+    Query using ctags
+    """
+    # Read ctags file
+    ctags_file = os.path.join(os.environ['HOME'], '.jdoc', 'tags')
+    if not os.path.exists(ctags_file):
+        raise Exception('No ctags file! {ctags_file}'.format(ctags_file=ctags_file))
+    tags = ctags.CTags(ctags_file)
+    entry = ctags.TagEntry()
+    
+    # Search ctags file
+    status = tags.find(entry, pattern, ctags.TAG_FULLMATCH)
+    doc_files = []
+    while True:
+        if not status:
+            break
+
+        # Find the version and parse coordinates
+        # TODO Does this work for all?
+        version_idx = None
+        tokens = entry['file'].split(os.path.sep)
+        for i, token in enumerate(tokens):
+            if VERSION_PATTERN.search(token):
+                version_idx = i
+                break
+        module_dir = os.path.join(index_dir, 'docs', os.path.sep.join(tokens[1:version_idx+1]))
+        coordinates = _parse_coordinates(index_dir, module_dir)
+
+        # Filter coordinates
+        if (not group or coordinates['group'] == group) and \
+           (not artifact or coordinates['artifact'] != artifact) and \
+           (not version or coordinates['version'] != version):
+            # Add this document
+            doc_file = os.path.join(
+                    os.environ['HOME'], 
+                    '.jdoc', 
+                    entry['file'].replace('sources', 'docs').replace('.java', '.html'))
+            if (coordinates, doc_file) not in doc_files:
+                doc_files.append((coordinates, doc_file))
+
+        # Move to next match
+        status = tags.findNext(entry)
+
+    render(index_dir, doc_files, show_source=show_source)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
             description='pydoc-like tool for interacting with Javadoc',
@@ -430,50 +477,12 @@ if __name__ == '__main__':
         httpd = SocketServer.TCPServer(('', args.server_port), SimpleHTTPServer.SimpleHTTPRequestHandler)
         print 'Serving at port', args.server_port
         httpd.serve_forever()
-    elif args.ctags: # TODO(greg_brandt) Move into own function
-        # Read ctags file
-        ctags_file = os.path.join(os.environ['HOME'], '.jdoc', 'tags')
-        if not os.path.exists(ctags_file):
-            raise Exception('No ctags file! {ctags_file}'.format(ctags_file=ctags_file))
-        tags = ctags.CTags(ctags_file)
-        entry = ctags.TagEntry()
-
-        # Search ctags file
+    elif args.ctags:
+        # Output to CLI
         patterns = args.patterns if args.patterns else []
         for pattern in patterns:
-            status = tags.find(entry, pattern, ctags.TAG_FULLMATCH)
-            doc_files = []
-            while True:
-                if not status:
-                    break
-
-                # Find the version and parse coordinates
-                # TODO Does this work for all?
-                version_idx = None
-                tokens = entry['file'].split(os.path.sep)
-                for i, token in enumerate(tokens):
-                    if VERSION_PATTERN.search(token):
-                        version_idx = i
-                        break
-                module_dir = os.path.join(args.index_dir, 'docs', os.path.sep.join(tokens[1:version_idx+1]))
-                coordinates = _parse_coordinates(args.index_dir, module_dir)
-
-                # Filter coordinates
-                if (not args.group or coordinates['group'] == args.group) and \
-                   (not args.artifact or coordinates['artifact'] != args.artifact) and \
-                   (not args.version or coordinates['version'] != args.version):
-                    # Add this document
-                    doc_file = os.path.join(
-                            os.environ['HOME'], 
-                            '.jdoc', 
-                            entry['file'].replace('sources', 'docs').replace('.java', '.html'))
-                    if (coordinates, doc_file) not in doc_files:
-                        doc_files.append((coordinates, doc_file))
-
-                # Move to next match
-                status = tags.findNext(entry)
-
-            render(args.index_dir, doc_files, show_source=args.show_source)
+            query_ctags(args.index_dir, pattern,
+                    group=args.group, artifact=args.artifact, version=args.version, show_source=args.show_source)
     else:
         # Output to CLI
         patterns = args.patterns if args.patterns else [None]
