@@ -23,6 +23,12 @@ Index all documents in local maven repo
 ./bin/jdoc --index
 ```
 
+Generate ctags for Java sources (for vim, etc.)
+
+```
+./bin/jdoc --ctags
+```
+
 Run simple HTTP file server
 
 ```
