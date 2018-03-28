@@ -28,6 +28,8 @@ import re
 import subprocess
 import sys
 import zipfile
+# pip install python-ctags
+import ctags
 
 
 # Use UTF8 default encoding
@@ -39,6 +41,8 @@ BOLD = '\033[1m'
 UNDERLINE = '\033[4m'
 END = '\033[0m'
 TERMINAL_SIZE = 60 # TODO More dynamic
+
+VERSION_PATTERN = re.compile('\d+\.\d+\.\d+')
 
 
 # Ignore these non-class files
@@ -95,7 +99,11 @@ def _parse_coordinates(index_dir, path):
     :param index_dir: The directory that index(...) wrote to
     :param path: Path to directory that contains index.html (i.e. root of module)
     """
-    tokens = path.replace(index_dir + '/docs/repository/', '').split('/')
+    tokens = path\
+            .replace(index_dir, '')\
+            .replace('/docs/repository/', '')\
+            .replace('/docs/sources/', '')\
+            .split('/')
     return {
         'group': '.'.join(tokens[0:-2]),
         'artifact': tokens[-2],
@@ -205,7 +213,10 @@ def _render_class_name(coordinate, path):
     :param coordinate: Maven coordinates for module
     :param path: Path to class's HTML Javadoc file
     """
-    return path.replace(coordinate['path'], '').replace('.html', '').replace('/', '.')[1:]
+    return path.replace(coordinate['path'], '')\
+            .replace('.html', '')\
+            .replace('.java', '')\
+            .replace('/', '.')[1:]
 
 
 def _render_coordinate(coordinate):
@@ -306,6 +317,28 @@ def index(maven_repo, gradle_repo, index_dir):
         if not os.path.exists(doc_dir):
             subprocess.call(['javadoc', '-sourcepath', source_dir, '-d', doc_dir, '-subpackages', '.'])
 
+def render(index_dir, doc_files, show_source=False):
+    """
+    Renders Javadoc files in index_dir.
+    """
+    if len(doc_files) == 1:
+        if show_source:
+            # Print source directly
+            source_file = doc_files[0][1] \
+                .replace(
+                    os.path.join(index_dir, 'docs'),
+                    os.path.join(index_dir, 'sources')) \
+                .replace('.html', '.java')
+            with open(source_file, 'r') as f:
+                print f.read()
+        else:
+            # Render CLI version of the doc
+            _render_cli_doc(_parse_cli_doc(doc_files[0][1]))
+    else:
+        # List the matches as fully-qualified class names
+        for class_name in sorted([_render_list_element(*doc_file) for doc_file in doc_files]):
+            print class_name
+
 
 def query(index_dir, class_pattern, group=None, artifact=None, version=None, show_source=False):
     """
@@ -343,23 +376,7 @@ def query(index_dir, class_pattern, group=None, artifact=None, version=None, sho
                 if (not class_pattern or class_pattern_regex.match(class_name)) and filename not in BLACKLIST:
                     doc_files.append((coordinate, path))
 
-    if len(doc_files) == 1:
-        if show_source:
-            # Print source directly
-            source_file = doc_files[0][1] \
-                .replace(
-                    os.path.join(index_dir, 'docs'),
-                    os.path.join(index_dir, 'sources')) \
-                .replace('.html', '.java')
-            with open(source_file, 'r') as f:
-                print f.read()
-        else:
-            # Render CLI version of the doc
-            _render_cli_doc(_parse_cli_doc(doc_files[0][1]))
-    else:
-        # List the matches as fully-qualified class names
-        for class_name in sorted([_render_list_element(*doc_file) for doc_file in doc_files]):
-            print class_name
+    render(index_dir, doc_files, show_source=show_source)
 
 
 if __name__ == '__main__':
@@ -369,13 +386,14 @@ if __name__ == '__main__':
 
     # Indexing args
     parser.add_argument('--index', action='store_true')
+    parser.add_argument('--index_ctags', action='store_true')
     parser.add_argument('-m', '--maven_repo', 
             help='Local maven repository', default=os.path.join(os.environ['HOME'], '.m2'))
     parser.add_argument('-G', '--gradle_repo',
             help='Local gradle repository', default=os.path.join(os.environ['HOME'], '.gradle'))
     parser.add_argument('-d', '--index_dir', 
             help='Javadoc index directory', default=os.path.join(os.environ['HOME'], '.jdoc'))
-    parser.add_argument('-c', '--ctags', action='store_true')
+    parser.add_argument('-c', '--ctags', action='store_true', help='Use ctags in search')
 
     # Serving args
     parser.add_argument('--server', action='store_true')
@@ -395,10 +413,16 @@ if __name__ == '__main__':
         index(args.maven_repo, args.gradle_repo, args.index_dir)
 
     # (Optionally) generate ctags for sources
-    if args.ctags:
+    if args.index_ctags:
         subprocess.call(['ctags', '--languages=java', '-R', 
             '-f', os.path.join(os.environ['HOME'], '.jdoc', 'tags'),
             os.path.join(os.environ['HOME'], '.jdoc', 'sources')])
+
+    # Use ctags for search if available
+    tags = None
+    ctags_file = os.path.join(os.environ['HOME'], '.jdoc', 'tags')
+    if os.path.exists(ctags_file):
+        tags = ctags.CTags(ctags_file)
 
     if args.server:
         # Serve HTML
@@ -406,6 +430,50 @@ if __name__ == '__main__':
         httpd = SocketServer.TCPServer(('', args.server_port), SimpleHTTPServer.SimpleHTTPRequestHandler)
         print 'Serving at port', args.server_port
         httpd.serve_forever()
+    elif args.ctags: # TODO(greg_brandt) Move into own function
+        # Read ctags file
+        ctags_file = os.path.join(os.environ['HOME'], '.jdoc', 'tags')
+        if not os.path.exists(ctags_file):
+            raise Exception('No ctags file! {ctags_file}'.format(ctags_file=ctags_file))
+        tags = ctags.CTags(ctags_file)
+        entry = ctags.TagEntry()
+
+        # Search ctags file
+        patterns = args.patterns if args.patterns else []
+        for pattern in patterns:
+            status = tags.find(entry, pattern, ctags.TAG_FULLMATCH)
+            doc_files = []
+            while True:
+                if not status:
+                    break
+
+                # Find the version and parse coordinates
+                # TODO Does this work for all?
+                version_idx = None
+                tokens = entry['file'].split(os.path.sep)
+                for i, token in enumerate(tokens):
+                    if VERSION_PATTERN.match(token):
+                        version_idx = i
+                        break
+                module_dir = os.path.join(args.index_dir, 'docs', os.path.sep.join(tokens[1:version_idx+1]))
+                coordinates = _parse_coordinates(args.index_dir, module_dir)
+
+                # Filter coordinates
+                if (not args.group or coordinates['group'] == args.group) and \
+                   (not args.artifact or coordinates['artifact'] != args.artifact) and \
+                   (not args.version or coordinates['version'] != args.version):
+                    # Add this document
+                    doc_file = os.path.join(
+                            os.environ['HOME'], 
+                            '.jdoc', 
+                            entry['file'].replace('sources', 'docs').replace('.java', '.html'))
+                    if (coordinates, doc_file) not in doc_files:
+                        doc_files.append((coordinates, doc_file))
+
+                # Move to next match
+                status = tags.findNext(entry)
+
+            render(args.index_dir, doc_files, show_source=args.show_source)
     else:
         # Output to CLI
         patterns = args.patterns if args.patterns else [None]
