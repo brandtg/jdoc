@@ -452,7 +452,7 @@ if __name__ == '__main__':
                 version_idx = None
                 tokens = entry['file'].split(os.path.sep)
                 for i, token in enumerate(tokens):
-                    if VERSION_PATTERN.match(token):
+                    if VERSION_PATTERN.search(token):
                         version_idx = i
                         break
                 module_dir = os.path.join(args.index_dir, 'docs', os.path.sep.join(tokens[1:version_idx+1]))
