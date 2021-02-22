@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import zipfile
+
 # pip install python-ctags3
 import ctags
 
@@ -35,33 +36,32 @@ import ctags
 # reload(sys)
 # sys.setdefaultencoding('UTF8')
 
-BOLD = '\033[1m'
-UNDERLINE = '\033[4m'
-END = '\033[0m'
+BOLD = "\033[1m"
+UNDERLINE = "\033[4m"
+END = "\033[0m"
 TERMINAL_SIZE = 60  # TODO More dynamic
 
-VERSION_PATTERN = re.compile(
-    '\d+\.\d+')  # Have seen when there are only two versions
+VERSION_PATTERN = re.compile("\d+\.\d+")  # Have seen when there are only two versions
 
 # Ignore these non-class files
 BLACKLIST = [
-    'allclasses-frame.html',
-    'allclasses-noframe.html',
-    'constant-values.html',
-    'deprecated-list.html',
-    'help-doc.html',
-    'index-all.html',
-    'index.html',
-    'overview-frame.html',
-    'overview-summary.html',
-    'overview-tree.html',
-    'package-frame.html',
-    'package-list',
-    'package-summary.html',
-    'package-tree.html',
-    'script.js',
-    'serialized-form.html',
-    'stylesheet.css',
+    "allclasses-frame.html",
+    "allclasses-noframe.html",
+    "constant-values.html",
+    "deprecated-list.html",
+    "help-doc.html",
+    "index-all.html",
+    "index.html",
+    "overview-frame.html",
+    "overview-summary.html",
+    "overview-tree.html",
+    "package-frame.html",
+    "package-list",
+    "package-summary.html",
+    "package-tree.html",
+    "script.js",
+    "serialized-form.html",
+    "stylesheet.css",
 ]
 
 
@@ -80,12 +80,12 @@ def _justify_text(raw, length):
             line.append(token)
             line_size += marginal_length
         else:
-            lines.append(' '.join(line))
+            lines.append(" ".join(line))
             line = []
             line_size = 0
 
     if len(line) > 0:
-        lines.append(' '.join(line))
+        lines.append(" ".join(line))
 
     return lines
 
@@ -97,16 +97,17 @@ def _parse_coordinates(index_dir, path):
     :param index_dir: The directory that index(...) wrote to
     :param path: Path to directory that contains index.html (i.e. root of module)
     """
-    tokens = path\
-            .replace(index_dir, '')\
-            .replace('/docs/repository/', '')\
-            .replace('/docs/sources/', '')\
-            .split('/')
+    tokens = (
+        path.replace(index_dir, "")
+        .replace("/docs/repository/", "")
+        .replace("/docs/sources/", "")
+        .split("/")
+    )
     return {
-        'group': '.'.join(tokens[0:-2]),
-        'artifact': tokens[-2],
-        'version': tokens[-1],
-        'path': path,
+        "group": ".".join(tokens[0:-2]),
+        "artifact": tokens[-2],
+        "version": tokens[-1],
+        "path": path,
     }
 
 
@@ -118,53 +119,51 @@ def _parse_cli_doc(path):
     """
     cli_doc = {}
 
-    with open(path, 'r') as f:
-        soup = BeautifulSoup(f.read(), 'html.parser')
+    with open(path, "r") as f:
+        soup = BeautifulSoup(f.read(), "html.parser")
 
         # Header
-        header = soup.find('div', {'class': 'header'})
-        cli_doc['package'] = header.find('div', {'class': 'subTitle'}).text
-        cli_doc['class'] = header.find('h2', {'class': 'title'}).text
+        header = soup.find("div", {"class": "header"})
+        cli_doc["package"] = header.find("div", {"class": "subTitle"}).text
+        cli_doc["class"] = header.find("h2", {"class": "title"}).text
 
         # Inheritance
-        cli_doc['inheritance'] = [
-            ih.find('li').text
-            for ih in soup.find_all('ul', {'class': 'inheritance'})
+        cli_doc["inheritance"] = [
+            ih.find("li").text for ih in soup.find_all("ul", {"class": "inheritance"})
         ]
 
         # Description
-        description_elt = soup.find('div', {'class': 'description'})
+        description_elt = soup.find("div", {"class": "description"})
         if description_elt:
-            description_elt = description_elt.find('div', {'class': 'block'})
+            description_elt = description_elt.find("div", {"class": "block"})
             if description_elt:
-                cli_doc['description'] = description_elt.text
+                cli_doc["description"] = description_elt.text
 
         # TODO Constructor Summary
 
         # Method Summary
-        cli_doc['method_summary'] = []
+        cli_doc["method_summary"] = []
         method_summary_table = [
-            elt for elt in soup.find_all('h3') if elt.text == 'Method Summary'
+            elt for elt in soup.find_all("h3") if elt.text == "Method Summary"
         ][0].next_sibling.next_sibling
-        for row in method_summary_table.find_all('tr'):
+        for row in method_summary_table.find_all("tr"):
             method_summary = {}
 
-            col_first = row.find('td', {'class': 'colFirst'})
+            col_first = row.find("td", {"class": "colFirst"})
             if col_first:
-                method_summary['return_type'] = col_first.text
+                method_summary["return_type"] = col_first.text
 
-            col_last = row.find('td', {'class': 'colLast'})
+            col_last = row.find("td", {"class": "colLast"})
             if col_last:
-                method = col_last.find('code')
+                method = col_last.find("code")
                 if method:
-                    method_summary['method'] = ' '.join(method.text.split())
-                description = col_last.find('div')
+                    method_summary["method"] = " ".join(method.text.split())
+                description = col_last.find("div")
                 if description:
-                    method_summary['description'] = ' '.join(
-                        description.text.split())
+                    method_summary["description"] = " ".join(description.text.split())
 
             if method_summary:
-                cli_doc['method_summary'].append(method_summary)
+                cli_doc["method_summary"].append(method_summary)
 
         # TODO Details
 
@@ -177,35 +176,35 @@ def _render_cli_doc(cli_doc):
 
     :param cli_doc: The output of _render_cli_doc(...)
     """
-    print(BOLD + 'PACKAGE' + END)
+    print(BOLD + "PACKAGE" + END)
     print()
-    print('\t' + cli_doc['package'])
-    print()
-
-    print(BOLD + 'CLASS' + END)
-    print()
-    print('\t' + cli_doc['class'])
+    print("\t" + cli_doc["package"])
     print()
 
-    print(BOLD + 'INHERITANCE' + END)
+    print(BOLD + "CLASS" + END)
     print()
-    for i in range(len(cli_doc['inheritance'])):
-        print('\t' + i * '    ' + cli_doc['inheritance'][i])
+    print("\t" + cli_doc["class"])
     print()
 
-    if 'description' in cli_doc:
-        print(BOLD + 'DESCRIPTION' + END)
+    print(BOLD + "INHERITANCE" + END)
+    print()
+    for i in range(len(cli_doc["inheritance"])):
+        print("\t" + i * "    " + cli_doc["inheritance"][i])
+    print()
+
+    if "description" in cli_doc:
+        print(BOLD + "DESCRIPTION" + END)
         print()
-        print('\t' + cli_doc['description'])
+        print("\t" + cli_doc["description"])
         print()
 
-    print(BOLD + 'METHOD SUMMARY' + END)
+    print(BOLD + "METHOD SUMMARY" + END)
     print()
-    for ms in cli_doc['method_summary']:
-        print('\t' + BOLD + ms['return_type'] + ' ' + ms['method'] + END)
-        if 'description' in ms:
-            for line in _justify_text(ms['description'], TERMINAL_SIZE):
-                print('\t| ' + line)
+    for ms in cli_doc["method_summary"]:
+        print("\t" + BOLD + ms["return_type"] + " " + ms["method"] + END)
+        if "description" in ms:
+            for line in _justify_text(ms["description"], TERMINAL_SIZE):
+                print("\t| " + line)
         print()
     print()
 
@@ -217,25 +216,26 @@ def _render_class_name(coordinate, path):
     :param coordinate: Maven coordinates for module
     :param path: Path to class's HTML Javadoc file
     """
-    return path.replace(coordinate['path'], '')\
-            .replace('.html', '')\
-            .replace('.java', '')\
-            .replace('/', '.')[1:]
+    return (
+        path.replace(coordinate["path"], "")
+        .replace(".html", "")
+        .replace(".java", "")
+        .replace("/", ".")[1:]
+    )
 
 
 def _render_coordinate(coordinate):
     """
     Renders Maven coordinate string.
     """
-    return '{group}:{artifact}:{version}'.format(**coordinate)
+    return "{group}:{artifact}:{version}".format(**coordinate)
 
 
 def _render_list_element(coordinate, path):
     """
     Renders tab-separated Maven coordinates and class name.
     """
-    return _render_coordinate(coordinate) + '\t' + _render_class_name(
-        coordinate, path)
+    return _render_coordinate(coordinate) + "\t" + _render_class_name(coordinate, path)
 
 
 def index(maven_repo, gradle_repo, index_dir):
@@ -246,96 +246,128 @@ def index(maven_repo, gradle_repo, index_dir):
     :param gradle_repo: Local gradle repository containing sources.
     :param index_dir: Output Javadoc to this directory.
     """
-    index_source_dir = os.path.join(index_dir, 'sources')
-    index_doc_dir = os.path.join(index_dir, 'docs')
+    index_source_dir = os.path.join(index_dir, "sources")
+    index_doc_dir = os.path.join(index_dir, "docs")
 
     # Maven repository
     if os.path.exists(maven_repo):
         for root, dirnames, filenames in os.walk(maven_repo):
             for filename in filenames:
-                if filename.endswith('-sources.jar'):
+                if filename.endswith("-sources.jar"):
                     source_jar = os.path.join(root, filename)
-                    print('Indexing', source_jar)
+                    print("Indexing", source_jar)
                     try:
                         # Extract source files
                         source_dir = os.path.dirname(
-                            source_jar.replace(maven_repo, index_source_dir))
+                            source_jar.replace(maven_repo, index_source_dir)
+                        )
                         if not os.path.exists(source_dir):
-                            with zipfile.ZipFile(source_jar, 'r') as zf:
+                            with zipfile.ZipFile(source_jar, "r") as zf:
                                 zf.extractall(source_dir)
 
                         # Generate Javadoc
                         doc_dir = os.path.dirname(
-                            source_jar.replace(maven_repo, index_doc_dir))
+                            source_jar.replace(maven_repo, index_doc_dir)
+                        )
                         if not os.path.exists(doc_dir):
-                            subprocess.call([
-                                'javadoc', '-sourcepath', source_dir, '-d',
-                                doc_dir, '-subpackages', '.'
-                            ])
+                            subprocess.call(
+                                [
+                                    "javadoc",
+                                    "-sourcepath",
+                                    source_dir,
+                                    "-d",
+                                    doc_dir,
+                                    "-subpackages",
+                                    ".",
+                                ]
+                            )
                     except Exception as e:
-                        print('Error!', e)
+                        print("Error!", e)
 
     # Gradle repository
     # N.b. path format: {gradle_repo}/caches/modules-2/files-2.1/{group}/{artifact}/{version}/{sha}/{jarfile}
     if os.path.exists(gradle_repo):
         for root, dirnames, filenames in os.walk(gradle_repo):
             for filename in filenames:
-                if filename.endswith('-sources.jar'):
+                if filename.endswith("-sources.jar"):
                     source_jar = os.path.join(root, filename)
-                    print('Indexing', source_jar)
+                    print("Indexing", source_jar)
 
                     try:
                         # Parse out coordinates
-                        path_tokens = root.replace(gradle_repo, '').split(
-                            os.path.sep)
+                        path_tokens = root.replace(gradle_repo, "").split(os.path.sep)
                         group = path_tokens[4]
                         artifact = path_tokens[5]
                         version = path_tokens[6]
 
                         # Extract source files
                         source_dir = os.path.join(
-                            index_source_dir, 'repository',
-                            group.replace('.', '/'), artifact, version)
+                            index_source_dir,
+                            "repository",
+                            group.replace(".", "/"),
+                            artifact,
+                            version,
+                        )
                         if not os.path.exists(source_dir):
-                            with zipfile.ZipFile(source_jar, 'r') as zf:
+                            with zipfile.ZipFile(source_jar, "r") as zf:
                                 zf.extractall(source_dir)
 
                         # Generate Javadoc
-                        doc_dir = source_dir.replace(index_source_dir,
-                                                     index_doc_dir)
+                        doc_dir = source_dir.replace(index_source_dir, index_doc_dir)
                         if not os.path.exists(doc_dir):
-                            subprocess.call([
-                                'javadoc', '-sourcepath', source_dir, '-d',
-                                doc_dir, '-subpackages', '.'
-                            ])
+                            subprocess.call(
+                                [
+                                    "javadoc",
+                                    "-sourcepath",
+                                    source_dir,
+                                    "-d",
+                                    doc_dir,
+                                    "-subpackages",
+                                    ".",
+                                ]
+                            )
                     except Exception as e:
-                        print('Error!', e)
+                        print("Error!", e)
 
     # Standard library
-    if 'JAVA_HOME' in os.environ:
-        source_jar = os.path.join(os.environ['JAVA_HOME'], 'src.zip')
-        jdk_coordinates = ('java', 'stdlib', os.environ['JAVA_HOME'].split(
-            os.path.sep)[-3])
+    if "JAVA_HOME" in os.environ:
+        source_jar = os.path.join(os.environ["JAVA_HOME"], "src.zip")
+        jdk_coordinates = (
+            "java",
+            "stdlib",
+            os.environ["JAVA_HOME"].split(os.path.sep)[-3],
+        )
 
         # Extract source files
         source_dir = os.path.join(
             os.path.dirname(
-                source_jar.replace(os.environ['JAVA_HOME'], index_source_dir)),
-            'repository', os.path.sep.join(jdk_coordinates))
+                source_jar.replace(os.environ["JAVA_HOME"], index_source_dir)
+            ),
+            "repository",
+            os.path.sep.join(jdk_coordinates),
+        )
         if not os.path.exists(source_dir):
-            with zipfile.ZipFile(source_jar, 'r') as zf:
+            with zipfile.ZipFile(source_jar, "r") as zf:
                 zf.extractall(source_dir)
 
         # Generate Javadoc
         doc_dir = os.path.join(
-            os.path.dirname(
-                source_jar.replace(os.environ['JAVA_HOME'], index_doc_dir)),
-            'repository', os.path.sep.join(jdk_coordinates))
+            os.path.dirname(source_jar.replace(os.environ["JAVA_HOME"], index_doc_dir)),
+            "repository",
+            os.path.sep.join(jdk_coordinates),
+        )
         if not os.path.exists(doc_dir):
-            subprocess.call([
-                'javadoc', '-sourcepath', source_dir, '-d', doc_dir,
-                '-subpackages', '.'
-            ])
+            subprocess.call(
+                [
+                    "javadoc",
+                    "-sourcepath",
+                    source_dir,
+                    "-d",
+                    doc_dir,
+                    "-subpackages",
+                    ".",
+                ]
+            )
 
 
 def render(index_dir, doc_files, show_source=False):
@@ -345,12 +377,14 @@ def render(index_dir, doc_files, show_source=False):
     if len(doc_files) == 1:
         if show_source:
             # Print source directly
-            source_file = doc_files[0][1] \
+            source_file = (
+                doc_files[0][1]
                 .replace(
-                    os.path.join(index_dir, 'docs'),
-                    os.path.join(index_dir, 'sources')) \
-                .replace('.html', '.java')
-            with open(source_file, 'r') as f:
+                    os.path.join(index_dir, "docs"), os.path.join(index_dir, "sources")
+                )
+                .replace(".html", ".java")
+            )
+            with open(source_file, "r") as f:
                 print(f.read())
         else:
             # Render CLI version of the doc
@@ -358,16 +392,14 @@ def render(index_dir, doc_files, show_source=False):
     else:
         # List the matches as fully-qualified class names
         for class_name in sorted(
-            [_render_list_element(*doc_file) for doc_file in doc_files]):
+            [_render_list_element(*doc_file) for doc_file in doc_files]
+        ):
             print(class_name)
 
 
-def query(index_dir,
-          class_pattern,
-          group=None,
-          artifact=None,
-          version=None,
-          show_source=False):
+def query(
+    index_dir, class_pattern, group=None, artifact=None, version=None, show_source=False
+):
     """
     Generate CLI readable docs for a class
 
@@ -382,45 +414,45 @@ def query(index_dir,
 
     # Find all artifact coordinates (i.e. things with index.html files)
     coordinates = []
-    for root, dirnames, filenames in os.walk(os.path.join(index_dir, 'docs')):
+    for root, dirnames, filenames in os.walk(os.path.join(index_dir, "docs")):
         for filename in filenames:
-            if filename == 'index.html':
+            if filename == "index.html":
                 coordinates.append(_parse_coordinates(index_dir, root))
 
     # Filter coordinates
-    filtered_coordinates = [c for c in coordinates if \
-            (not group or c['group'] == group) and \
-            (not artifact or c['artifact'] == artifact) and \
-            (not version or c['version'] == version)]
+    filtered_coordinates = [
+        c
+        for c in coordinates
+        if (not group or c["group"] == group)
+        and (not artifact or c["artifact"] == artifact)
+        and (not version or c["version"] == version)
+    ]
 
     # Search for class pattern within those coordinates
     doc_files = []
     for coordinate in filtered_coordinates:
-        for root, dirnames, filenames in os.walk(coordinate['path']):
+        for root, dirnames, filenames in os.walk(coordinate["path"]):
             for filename in filenames:
                 path = os.path.join(root, filename)
                 class_name = _render_class_name(coordinate, path)
-                if (not class_pattern or class_pattern_regex.match(class_name)
-                    ) and filename not in BLACKLIST:
+                if (
+                    not class_pattern or class_pattern_regex.match(class_name)
+                ) and filename not in BLACKLIST:
                     doc_files.append((coordinate, path))
 
     render(index_dir, doc_files, show_source=show_source)
 
 
-def query_ctags(index_dir,
-                pattern,
-                group=None,
-                artifact=None,
-                version=None,
-                show_source=False):
+def query_ctags(
+    index_dir, pattern, group=None, artifact=None, version=None, show_source=False
+):
     """
     Query using ctags
     """
     # Read ctags file
-    ctags_file = os.path.join(os.environ['HOME'], '.jdoc', 'tags')
+    ctags_file = os.path.join(os.environ["HOME"], ".jdoc", "tags")
     if not os.path.exists(ctags_file):
-        raise Exception(
-            'No ctags file! {ctags_file}'.format(ctags_file=ctags_file))
+        raise Exception("No ctags file! {ctags_file}".format(ctags_file=ctags_file))
     tags = ctags.CTags(ctags_file)
     entry = ctags.TagEntry()
 
@@ -434,24 +466,28 @@ def query_ctags(index_dir,
         # Find the version and parse coordinates
         # TODO Does this work for all?
         version_idx = None
-        tokens = entry['file'].split(os.path.sep)
+        tokens = entry["file"].split(os.path.sep)
         for i, token in enumerate(tokens):
             if VERSION_PATTERN.search(token):
                 version_idx = i
                 break
-        module_dir = os.path.join(index_dir, 'docs',
-                                  os.path.sep.join(tokens[1:version_idx + 1]))
+        module_dir = os.path.join(
+            index_dir, "docs", os.path.sep.join(tokens[1 : version_idx + 1])
+        )
         coordinates = _parse_coordinates(index_dir, module_dir)
 
         # Filter coordinates
-        if (not group or coordinates['group'] == group) and \
-           (not artifact or coordinates['artifact'] != artifact) and \
-           (not version or coordinates['version'] != version):
+        if (
+            (not group or coordinates["group"] == group)
+            and (not artifact or coordinates["artifact"] != artifact)
+            and (not version or coordinates["version"] != version)
+        ):
             # Add this document
-            doc_file = os.path.join(os.environ['HOME'],
-                                    '.jdoc', entry['file'].replace(
-                                        'sources', 'docs').replace(
-                                            '.java', '.html'))
+            doc_file = os.path.join(
+                os.environ["HOME"],
+                ".jdoc",
+                entry["file"].replace("sources", "docs").replace(".java", ".html"),
+            )
             if (coordinates, doc_file) not in doc_files:
                 doc_files.append((coordinates, doc_file))
 
@@ -461,47 +497,52 @@ def query_ctags(index_dir,
     render(index_dir, doc_files, show_source=show_source)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='pydoc-like tool for interacting with Javadoc',
-        formatter_class=argparse.RawTextHelpFormatter)
+        description="pydoc-like tool for interacting with Javadoc",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
 
     # Indexing args
-    parser.add_argument('--index', action='store_true')
-    parser.add_argument('--index_ctags', action='store_true')
+    parser.add_argument("--index", action="store_true")
+    parser.add_argument("--index_ctags", action="store_true")
     parser.add_argument(
-        '-m',
-        '--maven_repo',
-        help='Local maven repository',
-        default=os.path.join(os.environ['HOME'], '.m2'))
+        "-m",
+        "--maven_repo",
+        help="Local maven repository",
+        default=os.path.join(os.environ["HOME"], ".m2"),
+    )
     parser.add_argument(
-        '-G',
-        '--gradle_repo',
-        help='Local gradle repository',
-        default=os.path.join(os.environ['HOME'], '.gradle'))
+        "-G",
+        "--gradle_repo",
+        help="Local gradle repository",
+        default=os.path.join(os.environ["HOME"], ".gradle"),
+    )
     parser.add_argument(
-        '-d',
-        '--index_dir',
-        help='Javadoc index directory',
-        default=os.path.join(os.environ['HOME'], '.jdoc'))
+        "-d",
+        "--index_dir",
+        help="Javadoc index directory",
+        default=os.path.join(os.environ["HOME"], ".jdoc"),
+    )
     parser.add_argument(
-        '-c', '--ctags', action='store_true', help='Use ctags in search')
+        "-c", "--ctags", action="store_true", help="Use ctags in search"
+    )
 
     # Serving args
-    parser.add_argument('--server', action='store_true')
+    parser.add_argument("--server", action="store_true")
     parser.add_argument(
-        '-p', '--server_port', type=int, default=9999, help='Server port')
+        "-p", "--server_port", type=int, default=9999, help="Server port"
+    )
 
     # Query args
-    parser.add_argument('-g', '--group', help='Maven group')
-    parser.add_argument('-a', '--artifact', help='Maven artifact')
-    parser.add_argument('-v', '--version', help='Maven version')
+    parser.add_argument("-g", "--group", help="Maven group")
+    parser.add_argument("-a", "--artifact", help="Maven artifact")
+    parser.add_argument("-v", "--version", help="Maven version")
     parser.add_argument(
-        '-s',
-        '--show_source',
-        action='store_true',
-        help='Show source instead of doc')
-    parser.add_argument('patterns', nargs='*', help='Class name pattern(s)')
+        "-s", "--show_source", action="store_true", help="Show source instead of doc"
+    )
+    parser.add_argument("patterns", nargs="*", help="Class name pattern(s)")
+    parser.add_argument("--no_prefix", action="store_true")
 
     args = parser.parse_args()
 
@@ -511,15 +552,20 @@ if __name__ == '__main__':
 
     # (Optionally) generate ctags for sources
     if args.index_ctags:
-        subprocess.call([
-            'ctags', '--languages=java', '-R', '-f',
-            os.path.join(os.environ['HOME'], '.jdoc', 'tags'),
-            os.path.join(os.environ['HOME'], '.jdoc', 'sources')
-        ])
+        subprocess.call(
+            [
+                "ctags",
+                "--languages=java",
+                "-R",
+                "-f",
+                os.path.join(os.environ["HOME"], ".jdoc", "tags"),
+                os.path.join(os.environ["HOME"], ".jdoc", "sources"),
+            ]
+        )
 
     # Use ctags for search if available
     tags = None
-    ctags_file = os.path.join(os.environ['HOME'], '.jdoc', 'tags')
+    ctags_file = os.path.join(os.environ["HOME"], ".jdoc", "tags")
     if os.path.exists(ctags_file):
         tags = ctags.CTags(ctags_file)
 
@@ -527,8 +573,9 @@ if __name__ == '__main__':
         # Serve HTML
         os.chdir(os.path.join(args.index_dir))
         httpd = socketserver.TCPServer(
-            ('', args.server_port), http.server.SimpleHTTPRequestHandler)
-        print('Serving at port', args.server_port)
+            ("", args.server_port), http.server.SimpleHTTPRequestHandler
+        )
+        print("Serving at port", args.server_port)
         httpd.serve_forever()
     elif args.ctags:
         # Output to CLI
@@ -540,10 +587,13 @@ if __name__ == '__main__':
                 group=args.group,
                 artifact=args.artifact,
                 version=args.version,
-                show_source=args.show_source)
+                show_source=args.show_source,
+            )
     else:
         # Output to CLI
         patterns = args.patterns if args.patterns else [None]
+        if not args.no_prefix:
+            patterns = [f".*{pattern}" for pattern in patterns]
         for pattern in patterns:
             query(
                 args.index_dir,
@@ -551,4 +601,5 @@ if __name__ == '__main__':
                 group=args.group,
                 artifact=args.artifact,
                 version=args.version,
-                show_source=args.show_source)
+                show_source=args.show_source,
+            )
