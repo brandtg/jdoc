@@ -73,7 +73,9 @@ def classname_matches(classname, patterns, flags=0):
     if not patterns:
         return True
     for pattern in patterns:
-        if re.search(pattern, classname["name"], flags):
+        if re.search(pattern, classname["name"], flags) or re.search(
+            pattern, classname["jar"], flags
+        ):
             return True
     return False
 
