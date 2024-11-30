@@ -1,605 +1,115 @@
 #!/usr/bin/env python3
-#
-# copyright (c) 2018 greg brandt (brandt.greg@gmail.com)
-#
-# licensed under the apache license, version 2.0 (the "license");
-# you may not use this file except in compliance with the license.
-# you may obtain a copy of the license at
-#
-#     http://www.apache.org/licenses/license-2.0
-#
-# unless required by applicable law or agreed to in writing, software
-# distributed under the license is distributed on an "as is" basis,
-# without warranties or conditions of any kind, either express or implied.
-# see the license for the specific language governing permissions and
-# limitations under the license.
-#
-# Possible improvements
-# ---
-# * TODO Support using pre-compiled Javadoc jars
-# * TODO Jinja-templatized CLI doc
-#
-from bs4 import BeautifulSoup
-import http.server
-import socketserver
+import logging
 import argparse
 import os
 import re
-import subprocess
 import sys
+import json
 import zipfile
+import subprocess
+from bs4 import BeautifulSoup
 
-# pip install python-ctags3
-import ctags
-
-# Use UTF8 default encoding
-# reload(sys)
-# sys.setdefaultencoding('UTF8')
-
-BOLD = "\033[1m"
-UNDERLINE = "\033[4m"
-END = "\033[0m"
-TERMINAL_SIZE = 60  # TODO More dynamic
-
-VERSION_PATTERN = re.compile("\d+\.\d+")  # Have seen when there are only two versions
-
-# Ignore these non-class files
-BLACKLIST = [
-    "allclasses-frame.html",
-    "allclasses-noframe.html",
-    "constant-values.html",
-    "deprecated-list.html",
-    "help-doc.html",
-    "index-all.html",
-    "index.html",
-    "overview-frame.html",
-    "overview-summary.html",
-    "overview-tree.html",
-    "package-frame.html",
-    "package-list",
-    "package-summary.html",
-    "package-tree.html",
-    "script.js",
-    "serialized-form.html",
-    "stylesheet.css",
-]
+DEFAULT_MAVEN = os.path.join(os.environ["HOME"], ".m2")
+DEFAULT_OUTPUT = os.path.join(os.environ["HOME"], "jdoc")
+FILENAME_CLASSNAMES = "_classnames.json"
 
 
-def _justify_text(raw, length):
-    """
-    Returns lines that are ~= length.
-    """
-    tokens = raw.split()
-    lines = []
-    line = []
-    line_size = 0
-
-    for token in tokens:
-        marginal_length = len(token) + 1  # for space
-        if line_size + marginal_length <= length:
-            line.append(token)
-            line_size += marginal_length
-        else:
-            lines.append(" ".join(line))
-            line = []
-            line_size = 0
-
-    if len(line) > 0:
-        lines.append(" ".join(line))
-
-    return lines
-
-
-def _parse_coordinates(index_dir, path):
-    """
-    Returns the Maven coordinates from the path.
-
-    :param index_dir: The directory that index(...) wrote to
-    :param path: Path to directory that contains index.html (i.e. root of module)
-    """
-    tokens = (
-        path.replace(index_dir, "")
-        .replace("/docs/repository/", "")
-        .replace("/docs/sources/", "")
-        .split("/")
-    )
-    return {
-        "group": ".".join(tokens[0:-2]),
-        "artifact": tokens[-2],
-        "version": tokens[-1],
-        "path": path,
-    }
-
-
-def _parse_cli_doc(path):
-    """
-    Returns an object that represents the attributes on the Javadoc page.
-
-    :param path: The path to Javadoc rendered as HTML.
-    """
-    cli_doc = {}
-
-    with open(path, "r") as f:
-        soup = BeautifulSoup(f.read(), "html.parser")
-
-        # Header
-        header = soup.find("div", {"class": "header"})
-        cli_doc["package"] = header.find("div", {"class": "subTitle"}).text
-        cli_doc["class"] = header.find("h2", {"class": "title"}).text
-
-        # Inheritance
-        cli_doc["inheritance"] = [
-            ih.find("li").text for ih in soup.find_all("ul", {"class": "inheritance"})
-        ]
-
-        # Description
-        description_elt = soup.find("div", {"class": "description"})
-        if description_elt:
-            description_elt = description_elt.find("div", {"class": "block"})
-            if description_elt:
-                cli_doc["description"] = description_elt.text
-
-        # TODO Constructor Summary
-
-        # Method Summary
-        cli_doc["method_summary"] = []
-        method_summary_table = [
-            elt for elt in soup.find_all("h3") if elt.text == "Method Summary"
-        ][0].next_sibling.next_sibling
-        for row in method_summary_table.find_all("tr"):
-            method_summary = {}
-
-            col_first = row.find("td", {"class": "colFirst"})
-            if col_first:
-                method_summary["return_type"] = col_first.text
-
-            col_last = row.find("td", {"class": "colLast"})
-            if col_last:
-                method = col_last.find("code")
-                if method:
-                    method_summary["method"] = " ".join(method.text.split())
-                description = col_last.find("div")
-                if description:
-                    method_summary["description"] = " ".join(description.text.split())
-
-            if method_summary:
-                cli_doc["method_summary"].append(method_summary)
-
-        # TODO Details
-
-    return cli_doc
-
-
-def _render_cli_doc(cli_doc):
-    """
-    Renders a CLI-friendly version of Javadoc.
-
-    :param cli_doc: The output of _render_cli_doc(...)
-    """
-    print(BOLD + "PACKAGE" + END)
-    print()
-    print("\t" + cli_doc["package"])
-    print()
-
-    print(BOLD + "CLASS" + END)
-    print()
-    print("\t" + cli_doc["class"])
-    print()
-
-    print(BOLD + "INHERITANCE" + END)
-    print()
-    for i in range(len(cli_doc["inheritance"])):
-        print("\t" + i * "    " + cli_doc["inheritance"][i])
-    print()
-
-    if "description" in cli_doc:
-        print(BOLD + "DESCRIPTION" + END)
-        print()
-        print("\t" + cli_doc["description"])
-        print()
-
-    print(BOLD + "METHOD SUMMARY" + END)
-    print()
-    for ms in cli_doc["method_summary"]:
-        print("\t" + BOLD + ms["return_type"] + " " + ms["method"] + END)
-        if "description" in ms:
-            for line in _justify_text(ms["description"], TERMINAL_SIZE):
-                print("\t| " + line)
-        print()
-    print()
-
-
-def _render_class_name(coordinate, path):
-    """
-    Renders tab-separated coordintates / fully-qualified class name.
-
-    :param coordinate: Maven coordinates for module
-    :param path: Path to class's HTML Javadoc file
-    """
-    return (
-        path.replace(coordinate["path"], "")
-        .replace(".html", "")
-        .replace(".java", "")
-        .replace("/", ".")[1:]
-    )
-
-
-def _render_coordinate(coordinate):
-    """
-    Renders Maven coordinate string.
-    """
-    return "{group}:{artifact}:{version}".format(**coordinate)
-
-
-def _render_list_element(coordinate, path):
-    """
-    Renders tab-separated Maven coordinates and class name.
-    """
-    return _render_coordinate(coordinate) + "\t" + _render_class_name(coordinate, path)
-
-
-def index(maven_repo, gradle_repo, index_dir):
-    """
-    Creates javadoc for all locally installed sources.
-
-    :param maven_repo: Local maven repository containing sources.
-    :param gradle_repo: Local gradle repository containing sources.
-    :param index_dir: Output Javadoc to this directory.
-    """
-    index_source_dir = os.path.join(index_dir, "sources")
-    index_doc_dir = os.path.join(index_dir, "docs")
-
-    # Maven repository
-    if os.path.exists(maven_repo):
-        for root, dirnames, filenames in os.walk(maven_repo):
-            for filename in filenames:
-                if filename.endswith("-sources.jar"):
-                    source_jar = os.path.join(root, filename)
-                    print("Indexing", source_jar)
-                    try:
-                        # Extract source files
-                        source_dir = os.path.dirname(
-                            source_jar.replace(maven_repo, index_source_dir)
-                        )
-                        if not os.path.exists(source_dir):
-                            with zipfile.ZipFile(source_jar, "r") as zf:
-                                zf.extractall(source_dir)
-
-                        # Generate Javadoc
-                        doc_dir = os.path.dirname(
-                            source_jar.replace(maven_repo, index_doc_dir)
-                        )
-                        if not os.path.exists(doc_dir):
-                            subprocess.call(
-                                [
-                                    "javadoc",
-                                    "-sourcepath",
-                                    source_dir,
-                                    "-d",
-                                    doc_dir,
-                                    "-subpackages",
-                                    ".",
-                                ]
-                            )
-                    except Exception as e:
-                        print("Error!", e)
-
-    # Gradle repository
-    # N.b. path format: {gradle_repo}/caches/modules-2/files-2.1/{group}/{artifact}/{version}/{sha}/{jarfile}
-    if os.path.exists(gradle_repo):
-        for root, dirnames, filenames in os.walk(gradle_repo):
-            for filename in filenames:
-                if filename.endswith("-sources.jar"):
-                    source_jar = os.path.join(root, filename)
-                    print("Indexing", source_jar)
-
-                    try:
-                        # Parse out coordinates
-                        path_tokens = root.replace(gradle_repo, "").split(os.path.sep)
-                        group = path_tokens[4]
-                        artifact = path_tokens[5]
-                        version = path_tokens[6]
-
-                        # Extract source files
-                        source_dir = os.path.join(
-                            index_source_dir,
-                            "repository",
-                            group.replace(".", "/"),
-                            artifact,
-                            version,
-                        )
-                        if not os.path.exists(source_dir):
-                            with zipfile.ZipFile(source_jar, "r") as zf:
-                                zf.extractall(source_dir)
-
-                        # Generate Javadoc
-                        doc_dir = source_dir.replace(index_source_dir, index_doc_dir)
-                        if not os.path.exists(doc_dir):
-                            subprocess.call(
-                                [
-                                    "javadoc",
-                                    "-sourcepath",
-                                    source_dir,
-                                    "-d",
-                                    doc_dir,
-                                    "-subpackages",
-                                    ".",
-                                ]
-                            )
-                    except Exception as e:
-                        print("Error!", e)
-
-    # Standard library
-    if "JAVA_HOME" in os.environ:
-        source_jar = os.path.join(os.environ["JAVA_HOME"], "src.zip")
-        jdk_coordinates = (
-            "java",
-            "stdlib",
-            os.environ["JAVA_HOME"].split(os.path.sep)[-3],
-        )
-
-        # Extract source files
-        source_dir = os.path.join(
-            os.path.dirname(
-                source_jar.replace(os.environ["JAVA_HOME"], index_source_dir)
-            ),
-            "repository",
-            os.path.sep.join(jdk_coordinates),
-        )
-        if not os.path.exists(source_dir):
-            with zipfile.ZipFile(source_jar, "r") as zf:
-                zf.extractall(source_dir)
-
-        # Generate Javadoc
-        doc_dir = os.path.join(
-            os.path.dirname(source_jar.replace(os.environ["JAVA_HOME"], index_doc_dir)),
-            "repository",
-            os.path.sep.join(jdk_coordinates),
-        )
-        if not os.path.exists(doc_dir):
-            subprocess.call(
-                [
-                    "javadoc",
-                    "-sourcepath",
-                    source_dir,
-                    "-d",
-                    doc_dir,
-                    "-subpackages",
-                    ".",
-                ]
-            )
-
-
-def render(index_dir, doc_files, show_source=False):
-    """
-    Renders Javadoc files in index_dir.
-    """
-    if len(doc_files) == 1:
-        if show_source:
-            # Print source directly
-            source_file = (
-                doc_files[0][1]
-                .replace(
-                    os.path.join(index_dir, "docs"), os.path.join(index_dir, "sources")
-                )
-                .replace(".html", ".java")
-            )
-            with open(source_file, "r") as f:
-                print(f.read())
-        else:
-            # Render CLI version of the doc
-            _render_cli_doc(_parse_cli_doc(doc_files[0][1]))
-    else:
-        # List the matches as fully-qualified class names
-        for class_name in sorted(
-            [_render_list_element(*doc_file) for doc_file in doc_files]
-        ):
-            print(class_name)
-
-
-def query(
-    index_dir, class_pattern, group=None, artifact=None, version=None, show_source=False
-):
-    """
-    Generate CLI readable docs for a class
-
-    :param index_dir: The directory that index(...) wrote to
-    :param pattern: Package prefix or fully-qualified class name
-    :param group: Maven coordinates group (e.g. org.apache.httpcomponents)
-    :param artifact: Maven coordinates artifact (e.g. httpclient)
-    :param version: Maven coordinates version (e.g. 4.5.3)
-    """
-    if class_pattern:
-        class_pattern_regex = re.compile(class_pattern)
-
-    # Find all artifact coordinates (i.e. things with index.html files)
-    coordinates = []
-    for root, dirnames, filenames in os.walk(os.path.join(index_dir, "docs")):
+def index_maven(repodir, outputdir):
+    if not os.path.exists(repodir):
+        logging.warning("Maven repo does not exist: %s", repodir)
+        return
+    logging.info("Indexing Maven repo: %s", repodir)
+    os.makedirs(outputdir, exist_ok=True)
+    for root, dirnames, filenames in os.walk(repodir):
         for filename in filenames:
-            if filename == "index.html":
-                coordinates.append(_parse_coordinates(index_dir, root))
+            if filename.endswith("-javadoc.jar"):
+                pathname_input = os.path.join(root, filename)
+                pathname_output = os.path.join(outputdir, filename)
+                if not os.path.exists(pathname_output):
+                    logging.debug(
+                        "Extracting %s to %s", pathname_input, pathname_output
+                    )
+                    os.makedirs(pathname_output, exist_ok=True)
+                    with zipfile.ZipFile(pathname_input) as zf:
+                        zf.extractall(pathname_output)
 
-    # Filter coordinates
-    filtered_coordinates = [
-        c
-        for c in coordinates
-        if (not group or c["group"] == group)
-        and (not artifact or c["artifact"] == artifact)
-        and (not version or c["version"] == version)
+
+def parse_classnames(root, tree):
+    return [
+        dict(
+            name=elt["href"].replace(".html", "").replace("/", "."),
+            path=elt["href"],
+            jar=os.path.basename(root),
+        )
+        for elt in tree.select("li a")
     ]
 
-    # Search for class pattern within those coordinates
-    doc_files = []
-    for coordinate in filtered_coordinates:
-        for root, dirnames, filenames in os.walk(coordinate["path"]):
-            for filename in filenames:
-                path = os.path.join(root, filename)
-                class_name = _render_class_name(coordinate, path)
-                if (
-                    not class_pattern or class_pattern_regex.match(class_name)
-                ) and filename not in BLACKLIST:
-                    doc_files.append((coordinate, path))
 
-    render(index_dir, doc_files, show_source=show_source)
+def index_classnames(outputdir):
+    classnames = []
+    for root, dirnames, filenames in os.walk(outputdir):
+        for filename in filenames:
+            if filename == "allclasses-noframe.html":
+                pathname = os.path.join(root, filename)
+                logging.debug("Processing %s", pathname)
+                with open(pathname) as f:
+                    tree = BeautifulSoup(f, "html.parser")
+                    classnames.extend(parse_classnames(root, tree))
+    with open(os.path.join(outputdir, FILENAME_CLASSNAMES), "w") as f:
+        json.dump(classnames, f)
 
 
-def query_ctags(
-    index_dir, pattern, group=None, artifact=None, version=None, show_source=False
-):
-    """
-    Query using ctags
-    """
-    # Read ctags file
-    ctags_file = os.path.join(os.environ["HOME"], ".jdoc", "tags")
-    if not os.path.exists(ctags_file):
-        raise Exception("No ctags file! {ctags_file}".format(ctags_file=ctags_file))
-    tags = ctags.CTags(ctags_file)
-    entry = ctags.TagEntry()
+def index(mavendir, outputdir):
+    index_maven(mavendir, outputdir)
+    index_classnames(outputdir)
 
-    # Search ctags file
-    status = tags.find(entry, pattern, ctags.TAG_FULLMATCH)
-    doc_files = []
-    while True:
-        if not status:
-            break
 
-        # Find the version and parse coordinates
-        # TODO Does this work for all?
-        version_idx = None
-        tokens = entry["file"].split(os.path.sep)
-        for i, token in enumerate(tokens):
-            if VERSION_PATTERN.search(token):
-                version_idx = i
-                break
-        module_dir = os.path.join(
-            index_dir, "docs", os.path.sep.join(tokens[1 : version_idx + 1])
-        )
-        coordinates = _parse_coordinates(index_dir, module_dir)
+def load_classnames(dirname):
+    with open(os.path.join(dirname, FILENAME_CLASSNAMES)) as f:
+        return json.load(f)
 
-        # Filter coordinates
-        if (
-            (not group or coordinates["group"] == group)
-            and (not artifact or coordinates["artifact"] != artifact)
-            and (not version or coordinates["version"] != version)
-        ):
-            # Add this document
-            doc_file = os.path.join(
-                os.environ["HOME"],
-                ".jdoc",
-                entry["file"].replace("sources", "docs").replace(".java", ".html"),
-            )
-            if (coordinates, doc_file) not in doc_files:
-                doc_files.append((coordinates, doc_file))
 
-        # Move to next match
-        status = tags.findNext(entry)
+def classname_matches(classname, patterns, flags=0):
+    if not patterns:
+        return True
+    for pattern in patterns:
+        if re.search(pattern, classname["name"], flags):
+            return True
+    return False
 
-    render(index_dir, doc_files, show_source=show_source)
+
+def search(dirname, patterns, ignorecase=False):
+    flags = 0
+    if ignorecase:
+        flags |= re.IGNORECASE
+    matches = sorted(
+        [
+            classname
+            for classname in load_classnames(dirname)
+            if classname_matches(classname, patterns, flags=flags)
+        ],
+        key=lambda x: (x["name"], x["jar"]),
+    )
+    for match in matches:
+        pathname = os.path.join(dirname, match["jar"], match["path"])
+        logging.info("%s (file://%s)", match["name"], pathname)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="pydoc-like tool for interacting with Javadoc",
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
-
-    # Indexing args
+    parser = argparse.ArgumentParser()
     parser.add_argument("--index", action="store_true")
-    parser.add_argument("--index_ctags", action="store_true")
-    parser.add_argument(
-        "-m",
-        "--maven_repo",
-        help="Local maven repository",
-        default=os.path.join(os.environ["HOME"], ".m2"),
-    )
-    parser.add_argument(
-        "-G",
-        "--gradle_repo",
-        help="Local gradle repository",
-        default=os.path.join(os.environ["HOME"], ".gradle"),
-    )
-    parser.add_argument(
-        "-d",
-        "--index_dir",
-        help="Javadoc index directory",
-        default=os.path.join(os.environ["HOME"], ".jdoc"),
-    )
-    parser.add_argument(
-        "-c", "--ctags", action="store_true", help="Use ctags in search"
-    )
-
-    # Serving args
-    parser.add_argument("--server", action="store_true")
-    parser.add_argument(
-        "-p", "--server_port", type=int, default=9999, help="Server port"
-    )
-
-    # Query args
-    parser.add_argument("-g", "--group", help="Maven group")
-    parser.add_argument("-a", "--artifact", help="Maven artifact")
-    parser.add_argument("-v", "--version", help="Maven version")
-    parser.add_argument(
-        "-s", "--show_source", action="store_true", help="Show source instead of doc"
-    )
-    parser.add_argument("patterns", nargs="*", help="Class name pattern(s)")
-    parser.add_argument("--no_prefix", action="store_true")
-
+    parser.add_argument("-m", "--maven_repo", default=DEFAULT_MAVEN)
+    parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
+    parser.add_argument("-i", "--ignorecase", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("patterns", nargs="*")
     args = parser.parse_args()
-
-    # (Optionally) index before the query
+    logging.basicConfig(
+        format="%(message)s",
+        level=logging.DEBUG if args.debug else logging.INFO,
+        stream=sys.stdout,
+    )
     if args.index:
-        index(args.maven_repo, args.gradle_repo, args.index_dir)
-
-    # (Optionally) generate ctags for sources
-    if args.index_ctags:
-        subprocess.call(
-            [
-                "ctags",
-                "--languages=java",
-                "-R",
-                "-f",
-                os.path.join(os.environ["HOME"], ".jdoc", "tags"),
-                os.path.join(os.environ["HOME"], ".jdoc", "sources"),
-            ]
-        )
-
-    # Use ctags for search if available
-    tags = None
-    ctags_file = os.path.join(os.environ["HOME"], ".jdoc", "tags")
-    if os.path.exists(ctags_file):
-        tags = ctags.CTags(ctags_file)
-
-    if args.server:
-        # Serve HTML
-        os.chdir(os.path.join(args.index_dir))
-        httpd = socketserver.TCPServer(
-            ("", args.server_port), http.server.SimpleHTTPRequestHandler
-        )
-        print("Serving at port", args.server_port)
-        httpd.serve_forever()
-    elif args.ctags:
-        # Output to CLI
-        patterns = args.patterns if args.patterns else []
-        for pattern in patterns:
-            query_ctags(
-                args.index_dir,
-                pattern,
-                group=args.group,
-                artifact=args.artifact,
-                version=args.version,
-                show_source=args.show_source,
-            )
+        index(args.maven_repo, args.output)
     else:
-        # Output to CLI
-        patterns = args.patterns if args.patterns else [None]
-        if not args.no_prefix:
-            patterns = [f".*{pattern}" for pattern in patterns]
-        for pattern in patterns:
-            query(
-                args.index_dir,
-                pattern,
-                group=args.group,
-                artifact=args.artifact,
-                version=args.version,
-                show_source=args.show_source,
-            )
+        search(args.output, args.patterns, ignorecase=args.ignorecase)
