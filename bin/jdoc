@@ -41,7 +41,8 @@ def parse_classnames(root, tree):
             path=elt["href"],
             jar=os.path.basename(root),
         )
-        for elt in tree.select("li a")
+        for elt in tree.select("a")
+        if elt.get("title") and "class in" in elt.get("title")
     ]
 
 
@@ -70,14 +71,13 @@ def load_classnames(dirname):
 
 
 def classname_matches(classname, patterns, flags=0):
-    if not patterns:
-        return True
-    for pattern in patterns:
-        if re.search(pattern, classname["name"], flags) or re.search(
-            pattern, classname["jar"], flags
-        ):
-            return True
-    return False
+    if patterns:
+        for pattern in patterns:
+            if not re.search(pattern, classname["name"], flags) and not re.search(
+                pattern, classname["jar"], flags
+            ):
+                return False
+    return True
 
 
 def search(dirname, patterns, ignorecase=False):
