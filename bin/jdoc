@@ -97,9 +97,29 @@ def search(dirname, patterns, ignorecase=False):
         logging.info("%s (file://%s)", match["name"], pathname)
 
 
+def download():
+    for root, dirnames, filenames in os.walk(os.environ["HOME"]):
+        dirnames[:] = [
+            d for d in dirnames if d not in ["jdoc", "tmp"] and not d.startswith(".")
+        ]
+        for filename in filenames:
+            if filename == "pom.xml":
+                pathname = os.path.join(root, filename)
+                command = [
+                    "mvn",
+                    "-f",
+                    pathname,
+                    "dependency:resolve",
+                    "-Dclassifier=javadoc",
+                ]
+                logging.info("Running %s", " ".join(command))
+                subprocess.check_call(command)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--index", action="store_true")
+    parser.add_argument("--download", action="store_true")
     parser.add_argument("-m", "--maven_repo", default=DEFAULT_MAVEN)
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
     parser.add_argument("-i", "--ignorecase", action="store_true")
@@ -111,7 +131,9 @@ if __name__ == "__main__":
         level=logging.DEBUG if args.debug else logging.INFO,
         stream=sys.stdout,
     )
-    if args.index:
+    if args.download:
+        download()
+    elif args.index:
         index(args.maven_repo, args.output)
     else:
         search(args.output, args.patterns, ignorecase=args.ignorecase)
