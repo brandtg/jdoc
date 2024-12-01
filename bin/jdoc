@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 
 DEFAULT_MAVEN = os.path.join(os.environ["HOME"], ".m2")
 DEFAULT_OUTPUT = os.path.join(os.environ["HOME"], "jdoc")
-FILENAME_CLASSNAMES = "_classnames.json"
+FILENAME_INDEX = "_index.json"
 
 
 def index_maven(repodir, outputdir):
@@ -46,7 +46,23 @@ def parse_classnames(root, tree):
     ]
 
 
-def index_classnames(outputdir):
+def list_pom_files():
+    for root, dirnames, filenames in os.walk(os.environ["HOME"]):
+        dirnames[:] = [
+            d for d in dirnames if d not in ["jdoc", "tmp"] and not d.startswith(".")
+        ]
+        for filename in filenames:
+            if filename == "pom.xml":
+                pathname = os.path.join(root, filename)
+                yield pathname
+
+
+def get_last_modified_time(pathname):
+    return int(os.path.getmtime(pathname))
+
+
+def index_json(outputdir):
+    # Find classnames and their associated Javadoc files
     classnames = []
     for root, dirnames, filenames in os.walk(outputdir):
         for filename in filenames:
@@ -56,17 +72,22 @@ def index_classnames(outputdir):
                 with open(pathname) as f:
                     tree = BeautifulSoup(f, "html.parser")
                     classnames.extend(parse_classnames(root, tree))
-    with open(os.path.join(outputdir, FILENAME_CLASSNAMES), "w") as f:
-        json.dump(classnames, f)
+    # Find pom.xml files and record their last modified times
+    pomfiles = {}
+    for pathname in list_pom_files():
+        pomfiles[pathname] = dict(last_modified=get_last_modified_time(pathname))
+    # Write JSON file
+    with open(os.path.join(outputdir, FILENAME_INDEX), "w") as f:
+        json.dump(dict(classnames=classnames, pomfiles=pomfiles), f)
 
 
 def index(mavendir, outputdir):
     index_maven(mavendir, outputdir)
-    index_classnames(outputdir)
+    index_json(outputdir)
 
 
-def load_classnames(dirname):
-    with open(os.path.join(dirname, FILENAME_CLASSNAMES)) as f:
+def load_index(dirname):
+    with open(os.path.join(dirname, FILENAME_INDEX)) as f:
         return json.load(f)
 
 
@@ -80,40 +101,45 @@ def classname_matches(classname, patterns, flags=0):
     return True
 
 
-def search(dirname, patterns, ignorecase=False):
+def find_matches(index, patterns, ignorecase=False):
     flags = 0
     if ignorecase:
         flags |= re.IGNORECASE
-    matches = sorted(
+    return sorted(
         [
             classname
-            for classname in load_classnames(dirname)
+            for classname in index["classnames"]
             if classname_matches(classname, patterns, flags=flags)
         ],
         key=lambda x: (x["name"], x["jar"]),
     )
-    for match in matches:
+
+
+def check_modified_pomfiles(index):
+    for pathname, metadata in index["pomfiles"].items():
+        if metadata["last_modified"] < get_last_modified_time(pathname):
+            sys.stderr.write(f"! POM file has changed since last index: {pathname}\n")
+
+
+def search(dirname, patterns, ignorecase=False):
+    index = load_index(dirname)
+    check_modified_pomfiles(index)
+    for match in find_matches(index, patterns, ignorecase=ignorecase):
         pathname = os.path.join(dirname, match["jar"], match["path"])
         logging.info("%s (file://%s)", match["name"], pathname)
 
 
 def download():
-    for root, dirnames, filenames in os.walk(os.environ["HOME"]):
-        dirnames[:] = [
-            d for d in dirnames if d not in ["jdoc", "tmp"] and not d.startswith(".")
+    for pathname in list_pom_files():
+        command = [
+            "mvn",
+            "-f",
+            pathname,
+            "dependency:resolve",
+            "-Dclassifier=javadoc",
         ]
-        for filename in filenames:
-            if filename == "pom.xml":
-                pathname = os.path.join(root, filename)
-                command = [
-                    "mvn",
-                    "-f",
-                    pathname,
-                    "dependency:resolve",
-                    "-Dclassifier=javadoc",
-                ]
-                logging.info("Running %s", " ".join(command))
-                subprocess.check_call(command)
+        logging.info("Running %s", " ".join(command))
+        subprocess.check_call(command)
 
 
 if __name__ == "__main__":
@@ -131,6 +157,7 @@ if __name__ == "__main__":
         level=logging.DEBUG if args.debug else logging.INFO,
         stream=sys.stdout,
     )
+    # TODO Check to see if pom.xml have changed since the last time they were downloaded / indexed
     if args.download:
         download()
     elif args.index:
