@@ -9,6 +9,7 @@ import zipfile
 import subprocess
 import shutil
 from html.parser import HTMLParser
+from urllib import request
 
 DEFAULT_MAVEN = os.path.join(os.environ["HOME"], ".m2")
 DEFAULT_GRADLE = os.path.join(os.environ["HOME"], ".gradle")
@@ -38,8 +39,9 @@ def index_javadoc(repodir, outputdir):
 
 
 class LinkExtractor(HTMLParser):
-    def __init__(self):
+    def __init__(self, include_external=False):
         super().__init__()
+        self.include_external = include_external
         self.links = []
 
     def _is_code(self, title):
@@ -53,7 +55,7 @@ class LinkExtractor(HTMLParser):
             attrs = dict(attrs)
             title = attrs.get("title")
             href = attrs.get("href")
-            if self._is_code(title) and self._is_local(href):
+            if self._is_code(title) and (self.include_external or self._is_local(href)):
                 self.links.append(href)
 
     def get_links(self):
@@ -88,10 +90,43 @@ def get_last_modified_time(pathname):
     return int(os.path.getmtime(pathname))
 
 
+def get_java_version():
+    output = subprocess.check_output(
+        ["java", "-version"], stderr=subprocess.STDOUT
+    ).decode("utf-8")
+    match = re.search(r'version "(\d+)\.', output)
+    if not match:
+        raise Exception("Could not find Java version in output of java -version")
+    java_version = int(match.group(1))
+    logging.info("Identified system Java version as %s", java_version)
+    return java_version
+
+
+def parse_standard_library_classnames(java_version):
+    base_url = (
+        "https://docs.oracle.com/en/java/javase/" + str(java_version) + "/docs/api/"
+    )
+    all_classes_url = base_url + "allclasses-index.html"
+    with request.urlopen(all_classes_url) as response:
+        logging.info("GET %s => %s", all_classes_url, response.getcode())
+        html_content = response.read().decode("utf-8")
+        parser = LinkExtractor(include_external=True)
+        parser.feed(html_content)
+        return [
+            dict(
+                name=link.replace(".html", "").replace("/", "."),
+                path=base_url + link,
+                jar="JDK",
+            )
+            for link in parser.get_links()
+        ]
+
+
 def index_json(outputdir):
     logging.info("Building %s", FILENAME_INDEX)
-    # Find classnames and their associated Javadoc files
+    # Find classnames from standard library and libraries
     classnames = []
+    classnames.extend(parse_standard_library_classnames(get_java_version()))
     for root, dirnames, filenames in os.walk(outputdir):
         for filename in filenames:
             if filename in FILENAME_CLASS:
@@ -104,8 +139,7 @@ def index_json(outputdir):
     pomfiles = {}
     for pathname in list_build_files():
         last_modified = get_last_modified_time(pathname)
-        logging.info("Build file %s last modified at %s",
-                     pathname, last_modified)
+        logging.info("Build file %s last modified at %s", pathname, last_modified)
         pomfiles[pathname] = dict(last_modified=last_modified)
     # Write JSON file
     with open(os.path.join(outputdir, FILENAME_INDEX), "w") as f:
@@ -153,8 +187,7 @@ def find_matches(index, patterns, ignorecase=False):
 def check_modified_pomfiles(index):
     for pathname, metadata in index["pomfiles"].items():
         if metadata["last_modified"] < get_last_modified_time(pathname):
-            sys.stderr.write(
-                f"! POM file has changed since last index: {pathname}\n")
+            sys.stderr.write(f"! POM file has changed since last index: {pathname}\n")
 
 
 def log_warning(lines):
@@ -201,16 +234,22 @@ def search(dirname, patterns, ignorecase=False, format_=None):
     index = load_index(dirname)
     check_modified_pomfiles(index)
     for match in find_matches(index, patterns, ignorecase=ignorecase):
-        match_pathname = os.path.join(dirname, match["jar"], match["path"])
-        match_row = [match["name"], match["jar"], f"file://{match_pathname}"]
+        match_row = [
+            match["name"],
+            match["jar"],
+            (
+                match["path"]
+                if match["jar"] == "JDK"
+                else "file://" + os.path.join(dirname, match["jar"], match["path"])
+            ),
+        ]
         if not format_ or format_ == "tsv":
             sys.stdout.write("\t".join(match_row) + "\n")
         elif format_ == "csv":
             sys.stdout.write(",".join(match_row) + "\n")
         elif format_ == "json":
             sys.stdout.write(
-                json.dumps(
-                    dict(zip(["name", "jar", "path"], match_row))) + "\n"
+                json.dumps(dict(zip(["name", "jar", "path"], match_row))) + "\n"
             )
 
 
