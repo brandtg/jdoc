@@ -46,7 +46,10 @@ def parse_classnames(root, tree):
         )
         for elt in tree.select("a")
         if elt.get("title")
+        # Classes and interfaces
         and ("class in" in elt.get("title") or "interface in" in elt.get("title"))
+        # Exclude external links
+        and "http://" not in elt["href"] and "https://" not in elt["href"]
     ]
 
 
@@ -132,17 +135,6 @@ def check_modified_pomfiles(index):
             sys.stderr.write(f"! POM file has changed since last index: {pathname}\n")
 
 
-def search(dirname, patterns, ignorecase=False, link_only=False):
-    index = load_index(dirname)
-    check_modified_pomfiles(index)
-    for match in find_matches(index, patterns, ignorecase=ignorecase):
-        pathname = os.path.join(dirname, match["jar"], match["path"])
-        if link_only:
-            logging.info("%s", pathname)
-        else:
-            logging.info("%s (file://%s)", match["name"], pathname)
-
-
 def log_warning(lines):
     logging.warning(120 * "!")
     for line in lines:
@@ -179,6 +171,22 @@ def download():
             logging.error("Unknown build file: %s", pathname)
 
 
+def search(dirname, patterns, ignorecase=False, format_=None):
+    index = load_index(dirname)
+    check_modified_pomfiles(index)
+    for match in find_matches(index, patterns, ignorecase=ignorecase):
+        match_pathname = os.path.join(dirname, match["jar"], match["path"])
+        match_row = [match["name"], match["jar"], f"file://{match_pathname}"]
+        if not format_ or format_ == "tsv":
+            sys.stdout.write("\t".join(match_row) + "\n")
+        elif format_ == "csv":
+            sys.stdout.write(",".join(match_row) + "\n")
+        elif format_ == "json":
+            sys.stdout.write(
+                json.dumps(dict(zip(["name", "jar", "path"], match_row))) + "\n"
+            )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--index", action="store_true")
@@ -187,7 +195,7 @@ if __name__ == "__main__":
     parser.add_argument("-g", "--gradle_repo", default=DEFAULT_GRADLE)
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
     parser.add_argument("-i", "--ignorecase", action="store_true")
-    parser.add_argument("-l", "--link_only", action="store_true")
+    parser.add_argument("-f", "--format", choices=["tsv", "csv", "json"])
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--delete", action="store_true")
     parser.add_argument("patterns", nargs="*")
@@ -211,5 +219,5 @@ if __name__ == "__main__":
             args.output,
             args.patterns,
             ignorecase=args.ignorecase,
-            link_only=args.link_only,
+            format_=args.format,
         )
