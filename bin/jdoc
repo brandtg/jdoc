@@ -231,9 +231,15 @@ def download_all():
 
 
 def search(dirname, patterns, ignorecase=False, format_=None):
+    seen = set()
     index = load_index(dirname)
     check_modified_pomfiles(index)
     for match in find_matches(index, patterns, ignorecase=ignorecase):
+        match_key = "/".join([match["name"], match["jar"]])
+        if match_key in seen:
+            continue
+        else:
+            seen.add(match_key)
         match_row = [
             match["name"],
             match["jar"],
