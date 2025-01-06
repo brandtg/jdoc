@@ -97,14 +97,15 @@ def index_json(outputdir):
             if filename in FILENAME_CLASS:
                 pathname = os.path.join(root, filename)
                 logging.debug("Processing %s", pathname)
-                with open(pathname) as f:
+                with open(pathname, encoding="unicode_escape") as f:
                     html_content = f.read()
                     classnames.extend(parse_classnames(root, html_content))
     # Find build files and record their last modified times
     pomfiles = {}
     for pathname in list_build_files():
         last_modified = get_last_modified_time(pathname)
-        logging.info("Build file %s last modified at %s", pathname, last_modified)
+        logging.info("Build file %s last modified at %s",
+                     pathname, last_modified)
         pomfiles[pathname] = dict(last_modified=last_modified)
     # Write JSON file
     with open(os.path.join(outputdir, FILENAME_INDEX), "w") as f:
@@ -152,7 +153,8 @@ def find_matches(index, patterns, ignorecase=False):
 def check_modified_pomfiles(index):
     for pathname, metadata in index["pomfiles"].items():
         if metadata["last_modified"] < get_last_modified_time(pathname):
-            sys.stderr.write(f"! POM file has changed since last index: {pathname}\n")
+            sys.stderr.write(
+                f"! POM file has changed since last index: {pathname}\n")
 
 
 def log_warning(lines):
@@ -162,33 +164,37 @@ def log_warning(lines):
     logging.warning(120 * "!")
 
 
-def download():
-    for pathname in list_build_files():
-        basename = os.path.basename(pathname)
-        if basename == "pom.xml":
-            command = [
-                "mvn",
-                "-f",
-                pathname,
-                "dependency:resolve",
-                "-Dclassifier=javadoc",
+def download(pathname):
+    basename = os.path.basename(pathname)
+    if basename == "pom.xml":
+        command = [
+            "mvn",
+            "-f",
+            pathname,
+            "dependency:resolve",
+            "-Dclassifier=javadoc",
+        ]
+        logging.info("Running %s", " ".join(command))
+        subprocess.check_call(command)
+    elif basename == "build.gradle":
+        # TODO Support build.gradle
+        #
+        # IIUC one has to set the idea { module { downloadJavadoc = true } } setting,
+        # and there's no standardized way to download all the javadoc like there is
+        # for Maven. Gradle versions / gradlew might also factor in here.
+        log_warning(
+            [
+                "Gradle build file unsupported. Please configure gradle to download sources then download them manually.",
+                f"Build file: {pathname}",
             ]
-            logging.info("Running %s", " ".join(command))
-            subprocess.check_call(command)
-        elif basename == "build.gradle":
-            # TODO Support build.gradle
-            #
-            # IIUC one has to set the idea { module { downloadJavadoc = true } } setting,
-            # and there's no standardized way to download all the javadoc like there is
-            # for Maven. Gradle versions / gradlew might also factor in here.
-            log_warning(
-                [
-                    "Gradle build file unsupported. Please configure gradle to download sources then download them manually.",
-                    f"Build file: {pathname}",
-                ]
-            )
-        else:
-            logging.error("Unknown build file: %s", pathname)
+        )
+    else:
+        logging.error("Unknown build file: %s", pathname)
+
+
+def download_all():
+    for pathname in list_build_files():
+        download(pathname)
 
 
 def search(dirname, patterns, ignorecase=False, format_=None):
@@ -203,7 +209,8 @@ def search(dirname, patterns, ignorecase=False, format_=None):
             sys.stdout.write(",".join(match_row) + "\n")
         elif format_ == "json":
             sys.stdout.write(
-                json.dumps(dict(zip(["name", "jar", "path"], match_row))) + "\n"
+                json.dumps(
+                    dict(zip(["name", "jar", "path"], match_row))) + "\n"
             )
 
 
@@ -226,7 +233,7 @@ if __name__ == "__main__":
         stream=sys.stdout,
     )
     if args.download:
-        download()
+        download_all()
     elif args.index:
         index(
             args.maven_repo,
