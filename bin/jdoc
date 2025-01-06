@@ -8,7 +8,7 @@ import json
 import zipfile
 import subprocess
 import shutil
-from bs4 import BeautifulSoup
+from html.parser import HTMLParser
 
 DEFAULT_MAVEN = os.path.join(os.environ["HOME"], ".m2")
 DEFAULT_GRADLE = os.path.join(os.environ["HOME"], ".gradle")
@@ -37,19 +37,39 @@ def index_javadoc(repodir, outputdir):
                         zf.extractall(pathname_output)
 
 
-def parse_classnames(root, tree):
+class LinkExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links = []
+
+    def _is_code(self, title):
+        return title and ("class in" in title or "interface in" in title)
+
+    def _is_local(self, href):
+        return href and "http://" not in href and "https://" not in href
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            attrs = dict(attrs)
+            title = attrs.get("title")
+            href = attrs.get("href")
+            if self._is_code(title) and self._is_local(href):
+                self.links.append(href)
+
+    def get_links(self):
+        return self.links
+
+
+def parse_classnames(root, html_content):
+    parser = LinkExtractor()
+    parser.feed(html_content)
     return [
         dict(
-            name=elt["href"].replace(".html", "").replace("/", "."),
-            path=elt["href"],
+            name=link.replace(".html", "").replace("/", "."),
+            path=link,
             jar=os.path.basename(root),
         )
-        for elt in tree.select("a")
-        if elt.get("title")
-        # Classes and interfaces
-        and ("class in" in elt.get("title") or "interface in" in elt.get("title"))
-        # Exclude external links
-        and "http://" not in elt["href"] and "https://" not in elt["href"]
+        for link in parser.get_links()
     ]
 
 
@@ -78,8 +98,8 @@ def index_json(outputdir):
                 pathname = os.path.join(root, filename)
                 logging.debug("Processing %s", pathname)
                 with open(pathname) as f:
-                    tree = BeautifulSoup(f, "html.parser")
-                    classnames.extend(parse_classnames(root, tree))
+                    html_content = f.read()
+                    classnames.extend(parse_classnames(root, html_content))
     # Find build files and record their last modified times
     pomfiles = {}
     for pathname in list_build_files():
