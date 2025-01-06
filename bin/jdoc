@@ -7,18 +7,21 @@ import sys
 import json
 import zipfile
 import subprocess
+import shutil
 from bs4 import BeautifulSoup
 
 DEFAULT_MAVEN = os.path.join(os.environ["HOME"], ".m2")
+DEFAULT_GRADLE = os.path.join(os.environ["HOME"], ".gradle")
 DEFAULT_OUTPUT = os.path.join(os.environ["HOME"], "jdoc")
 FILENAME_INDEX = "_index.json"
+FILENAME_CLASS = ["allclasses-noframe.html", "allclasses-index.html"]
 
 
-def index_maven(repodir, outputdir):
+def index_javadoc(repodir, outputdir):
     if not os.path.exists(repodir):
-        logging.warning("Maven repo does not exist: %s", repodir)
+        logging.warning("Repo does not exist: %s", repodir)
         return
-    logging.info("Indexing Maven repo: %s", repodir)
+    logging.info("Indexing repo: %s", repodir)
     os.makedirs(outputdir, exist_ok=True)
     for root, dirnames, filenames in os.walk(repodir):
         for filename in filenames:
@@ -42,17 +45,18 @@ def parse_classnames(root, tree):
             jar=os.path.basename(root),
         )
         for elt in tree.select("a")
-        if elt.get("title") and "class in" in elt.get("title")
+        if elt.get("title")
+        and ("class in" in elt.get("title") or "interface in" in elt.get("title"))
     ]
 
 
-def list_pom_files():
+def list_build_files():
     for root, dirnames, filenames in os.walk(os.environ["HOME"]):
         dirnames[:] = [
             d for d in dirnames if d not in ["jdoc", "tmp"] and not d.startswith(".")
         ]
         for filename in filenames:
-            if filename == "pom.xml":
+            if filename == "pom.xml" or filename == "build.gradle":
                 pathname = os.path.join(root, filename)
                 yield pathname
 
@@ -62,27 +66,34 @@ def get_last_modified_time(pathname):
 
 
 def index_json(outputdir):
+    logging.info("Building %s", FILENAME_INDEX)
     # Find classnames and their associated Javadoc files
     classnames = []
     for root, dirnames, filenames in os.walk(outputdir):
         for filename in filenames:
-            if filename == "allclasses-noframe.html":
+            if filename in FILENAME_CLASS:
                 pathname = os.path.join(root, filename)
                 logging.debug("Processing %s", pathname)
                 with open(pathname) as f:
                     tree = BeautifulSoup(f, "html.parser")
                     classnames.extend(parse_classnames(root, tree))
-    # Find pom.xml files and record their last modified times
+    # Find build files and record their last modified times
     pomfiles = {}
-    for pathname in list_pom_files():
-        pomfiles[pathname] = dict(last_modified=get_last_modified_time(pathname))
+    for pathname in list_build_files():
+        last_modified = get_last_modified_time(pathname)
+        logging.info("Build file %s last modified at %s", pathname, last_modified)
+        pomfiles[pathname] = dict(last_modified=last_modified)
     # Write JSON file
     with open(os.path.join(outputdir, FILENAME_INDEX), "w") as f:
         json.dump(dict(classnames=classnames, pomfiles=pomfiles), f)
 
 
-def index(mavendir, outputdir):
-    index_maven(mavendir, outputdir)
+def index(mavendir, gradledir, outputdir, delete=False):
+    if delete and os.path.exists(outputdir):
+        logging.info("Deleting %s", outputdir)
+        shutil.rmtree(outputdir)
+    index_javadoc(mavendir, outputdir)
+    index_javadoc(gradledir, outputdir)
     index_json(outputdir)
 
 
@@ -121,25 +132,51 @@ def check_modified_pomfiles(index):
             sys.stderr.write(f"! POM file has changed since last index: {pathname}\n")
 
 
-def search(dirname, patterns, ignorecase=False):
+def search(dirname, patterns, ignorecase=False, link_only=False):
     index = load_index(dirname)
     check_modified_pomfiles(index)
     for match in find_matches(index, patterns, ignorecase=ignorecase):
         pathname = os.path.join(dirname, match["jar"], match["path"])
-        logging.info("%s (file://%s)", match["name"], pathname)
+        if link_only:
+            logging.info("%s", pathname)
+        else:
+            logging.info("%s (file://%s)", match["name"], pathname)
+
+
+def log_warning(lines):
+    logging.warning(120 * "!")
+    for line in lines:
+        logging.warning("!! %s", line)
+    logging.warning(120 * "!")
 
 
 def download():
-    for pathname in list_pom_files():
-        command = [
-            "mvn",
-            "-f",
-            pathname,
-            "dependency:resolve",
-            "-Dclassifier=javadoc",
-        ]
-        logging.info("Running %s", " ".join(command))
-        subprocess.check_call(command)
+    for pathname in list_build_files():
+        basename = os.path.basename(pathname)
+        if basename == "pom.xml":
+            command = [
+                "mvn",
+                "-f",
+                pathname,
+                "dependency:resolve",
+                "-Dclassifier=javadoc",
+            ]
+            logging.info("Running %s", " ".join(command))
+            subprocess.check_call(command)
+        elif basename == "build.gradle":
+            # TODO Support build.gradle
+            #
+            # IIUC one has to set the idea { module { downloadJavadoc = true } } setting,
+            # and there's no standardized way to download all the javadoc like there is
+            # for Maven. Gradle versions / gradlew might also factor in here.
+            log_warning(
+                [
+                    "Gradle build file unsupported. Please configure gradle to download sources then download them manually.",
+                    f"Build file: {pathname}",
+                ]
+            )
+        else:
+            logging.error("Unknown build file: %s", pathname)
 
 
 if __name__ == "__main__":
@@ -147,9 +184,12 @@ if __name__ == "__main__":
     parser.add_argument("--index", action="store_true")
     parser.add_argument("--download", action="store_true")
     parser.add_argument("-m", "--maven_repo", default=DEFAULT_MAVEN)
+    parser.add_argument("-g", "--gradle_repo", default=DEFAULT_GRADLE)
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
     parser.add_argument("-i", "--ignorecase", action="store_true")
+    parser.add_argument("-l", "--link_only", action="store_true")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--delete", action="store_true")
     parser.add_argument("patterns", nargs="*")
     args = parser.parse_args()
     logging.basicConfig(
@@ -157,10 +197,19 @@ if __name__ == "__main__":
         level=logging.DEBUG if args.debug else logging.INFO,
         stream=sys.stdout,
     )
-    # TODO Check to see if pom.xml have changed since the last time they were downloaded / indexed
     if args.download:
         download()
     elif args.index:
-        index(args.maven_repo, args.output)
+        index(
+            args.maven_repo,
+            args.gradle_repo,
+            args.output,
+            delete=args.delete,
+        )
     else:
-        search(args.output, args.patterns, ignorecase=args.ignorecase)
+        search(
+            args.output,
+            args.patterns,
+            ignorecase=args.ignorecase,
+            link_only=args.link_only,
+        )
