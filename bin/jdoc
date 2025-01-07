@@ -19,6 +19,12 @@ FILENAME_CLASS = ["allclasses-noframe.html", "allclasses-index.html"]
 
 
 def index_javadoc(repodir, outputdir):
+    """
+    Extracts Javadoc archives.
+
+    :param repodir: Root directory of local Maven or Gradle repo.
+    :param outputdir: Extract Javadoc into this directory.
+    """
     if not os.path.exists(repodir):
         logging.warning("Repo does not exist: %s", repodir)
         return
@@ -39,15 +45,32 @@ def index_javadoc(repodir, outputdir):
 
 
 class LinkExtractor(HTMLParser):
+    """
+    Extracts links to local Javadoc from an HTML document.
+    """
+
     def __init__(self, include_external=False):
+        """
+        :param include_external: If False, only consider local links.
+            This should be set to true if processing Javadoc that lives
+            on the web, e.g. the core JDK docs.
+        """
         super().__init__()
         self.include_external = include_external
         self.links = []
 
     def _is_code(self, title):
+        """
+        :param title: The link title text in a Javadoc index page.
+        :return: True if the link is to a class or interface.
+        """
         return title and ("class in" in title or "interface in" in title)
 
     def _is_local(self, href):
+        """
+        :param href: The link URL.
+        :return: True if the link is to an HTML file that exists locally.
+        """
         return href and "http://" not in href and "https://" not in href
 
     def handle_starttag(self, tag, attrs):
@@ -59,10 +82,22 @@ class LinkExtractor(HTMLParser):
                 self.links.append(href)
 
     def get_links(self):
+        """
+        :return: List of the extracted links to classes and interfaces.
+        """
         return self.links
 
 
 def parse_classnames(root, html_content):
+    """
+    Extracts all classes and interfaces from Javadoc index.
+
+    :param root: The directory containing the Javadoc.
+    :param html_content: The content of the Javadoc page.
+    :return: A list of records with the fully-qualified class name,
+        the path to the Javadoc file in the index (for viewing), and
+        the jar file it came from, which contains version information.
+    """
     parser = LinkExtractor()
     parser.feed(html_content)
     return [
@@ -76,6 +111,11 @@ def parse_classnames(root, html_content):
 
 
 def list_build_files():
+    """
+    Finds all Maven/Gradle build files in user's home directory.
+
+    :yield: The absolute path to the build file.
+    """
     for root, dirnames, filenames in os.walk(os.environ["HOME"]):
         dirnames[:] = [
             d for d in dirnames if d not in ["jdoc", "tmp"] and not d.startswith(".")
@@ -87,10 +127,18 @@ def list_build_files():
 
 
 def get_last_modified_time(pathname):
+    """
+    :return: The last modified time of ``pathname``.
+    """
     return int(os.path.getmtime(pathname))
 
 
 def get_java_version():
+    """
+    Runs ``java -version`` and extracts the major version.
+
+    :return: The major version of Java found on the user's path.
+    """
     output = subprocess.check_output(
         ["java", "-version"], stderr=subprocess.STDOUT
     ).decode("utf-8")
@@ -103,6 +151,14 @@ def get_java_version():
 
 
 def parse_standard_library_classnames(java_version):
+    """
+    Finds links to Javadoc for the JDK from the web.
+
+    :param java_version: The major version of Java
+    :return: A list of records with the fully-qualified class name,
+        the path to the Javadoc file in the index (for viewing), and
+        the jar file it came from, which contains version information.
+    """
     base_url = (
         "https://docs.oracle.com/en/java/javase/" + str(java_version) + "/docs/api/"
     )
@@ -123,6 +179,15 @@ def parse_standard_library_classnames(java_version):
 
 
 def index_json(outputdir):
+    """
+    Builds the JSON index file containing all classes.
+
+    The index file consists of a list of all the classes and the location
+    of their Javadocs, and a mapping of all local build files to their last
+    changed timestamp, so we can know if dependencies have changed.
+
+    :param outputdir: Write JSON index file into this directory.
+    """
     logging.info("Building %s", FILENAME_INDEX)
     # Find classnames from standard library and libraries
     classnames = []
@@ -147,6 +212,14 @@ def index_json(outputdir):
 
 
 def index(mavendir, gradledir, outputdir, delete=False):
+    """
+    Runs indexing pipeline.
+
+    :param mavendir: Location of Maven repository.
+    :param gradledir: Location of Gradle repository.
+    :param outputdir: Directory for extracted javadoc and index JSON file.
+    :param delete: If True, delete any existing outputdir before indexing.
+    """
     if delete and os.path.exists(outputdir):
         logging.info("Deleting %s", outputdir)
         shutil.rmtree(outputdir)
@@ -156,11 +229,22 @@ def index(mavendir, gradledir, outputdir, delete=False):
 
 
 def load_index(dirname):
+    """
+    :return: The index JSON file.
+    """
     with open(os.path.join(dirname, FILENAME_INDEX)) as f:
         return json.load(f)
 
 
 def classname_matches(classname, patterns, flags=0):
+    """
+    Returns True if a class matches search patterns.
+
+    :param classname: The class record.
+    :param patterns: A list of regular expressions.
+    :param flags: Passed to ``re.search``.
+    :return: True if the class name or jar matches one of the patterns.
+    """
     if patterns:
         for pattern in patterns:
             if not re.search(pattern, classname["name"], flags) and not re.search(
@@ -171,6 +255,14 @@ def classname_matches(classname, patterns, flags=0):
 
 
 def find_matches(index, patterns, ignorecase=False):
+    """
+    Searches index for matching classes.
+
+    :param index: Structure with records for all classes.
+    :param patterns: A list of regular expressions.
+    :param ignorecase: If True perform case-insensitive matching.
+    :return: A sorted list of all classes matching a search query.
+    """
     flags = 0
     if ignorecase:
         flags |= re.IGNORECASE
@@ -185,52 +277,72 @@ def find_matches(index, patterns, ignorecase=False):
 
 
 def check_modified_pomfiles(index):
+    """
+    Logs warnings if any build files have changed since last indexing.
+
+    :param index: Structure with last modified times of all build files.
+    """
     for pathname, metadata in index["pomfiles"].items():
         if metadata["last_modified"] < get_last_modified_time(pathname):
             sys.stderr.write(f"! POM file has changed since last index: {pathname}\n")
 
 
 def log_warning(lines):
+    """
+    Logs a more visible warning.
+
+    :param lines: A list of strings.
+    """
     logging.warning(120 * "!")
     for line in lines:
         logging.warning("!! %s", line)
     logging.warning(120 * "!")
 
 
-def download(pathname):
-    basename = os.path.basename(pathname)
-    if basename == "pom.xml":
-        command = [
-            "mvn",
-            "-f",
-            pathname,
-            "dependency:resolve",
-            "-Dclassifier=javadoc",
-        ]
-        logging.info("Running %s", " ".join(command))
-        subprocess.check_call(command)
-    elif basename == "build.gradle":
-        # TODO Support build.gradle
-        #
-        # IIUC one has to set the idea { module { downloadJavadoc = true } } setting,
-        # and there's no standardized way to download all the javadoc like there is
-        # for Maven. Gradle versions / gradlew might also factor in here.
-        log_warning(
-            [
-                "Gradle build file unsupported. Please configure gradle to download sources then download them manually.",
-                f"Build file: {pathname}",
-            ]
-        )
-    else:
-        logging.error("Unknown build file: %s", pathname)
+def download():
+    """
+    Downloads Javadoc for all local projects.
 
-
-def download_all():
+    Note: Gradle isn't supported currently, so those projects will need to
+    manually download their sources and Javadocs.
+    """
     for pathname in list_build_files():
-        download(pathname)
+        basename = os.path.basename(pathname)
+        if basename == "pom.xml":
+            command = [
+                "mvn",
+                "-f",
+                pathname,
+                "dependency:resolve",
+                "-Dclassifier=javadoc",
+            ]
+            logging.info("Running %s", " ".join(command))
+            subprocess.check_call(command)
+        elif basename == "build.gradle":
+            # TODO Support build.gradle
+            #
+            # IIUC one has to set the idea { module { downloadJavadoc = true } } setting,
+            # and there's no standardized way to download all the javadoc like there is
+            # for Maven. Gradle versions / gradlew might also factor in here.
+            log_warning(
+                [
+                    "Gradle build file unsupported. Please configure gradle to download sources then download them manually.",
+                    f"Build file: {pathname}",
+                ]
+            )
+        else:
+            logging.error("Unknown build file: %s", pathname)
 
 
 def search(dirname, patterns, ignorecase=False, format_=None):
+    """
+    Finds classes matching patterns.
+
+    :param dirname: Path to the index and extracted Javadocs.
+    :param patterns: Match classes against these regular expressions.
+    :param ignorecase: Perform case-insensitive matching.
+    :param format_: Output format, either csv, tsv, or json.
+    """
     seen = set()
     index = load_index(dirname)
     check_modified_pomfiles(index)
@@ -277,15 +389,16 @@ if __name__ == "__main__":
         level=logging.DEBUG if args.debug else logging.INFO,
         stream=sys.stdout,
     )
-    if args.download:
-        download_all()
-    elif args.index:
-        index(
-            args.maven_repo,
-            args.gradle_repo,
-            args.output,
-            delete=args.delete,
-        )
+    if args.download or args.index:
+        if args.download:
+            download()
+        if args.index:
+            index(
+                args.maven_repo,
+                args.gradle_repo,
+                args.output,
+                delete=args.delete,
+            )
     else:
         search(
             args.output,
