@@ -197,37 +197,33 @@ def log_warning(lines):
     logging.warning(120 * "!")
 
 
-def download(pathname):
-    basename = os.path.basename(pathname)
-    if basename == "pom.xml":
-        command = [
-            "mvn",
-            "-f",
-            pathname,
-            "dependency:resolve",
-            "-Dclassifier=javadoc",
-        ]
-        logging.info("Running %s", " ".join(command))
-        subprocess.check_call(command)
-    elif basename == "build.gradle":
-        # TODO Support build.gradle
-        #
-        # IIUC one has to set the idea { module { downloadJavadoc = true } } setting,
-        # and there's no standardized way to download all the javadoc like there is
-        # for Maven. Gradle versions / gradlew might also factor in here.
-        log_warning(
-            [
-                "Gradle build file unsupported. Please configure gradle to download sources then download them manually.",
-                f"Build file: {pathname}",
-            ]
-        )
-    else:
-        logging.error("Unknown build file: %s", pathname)
-
-
-def download_all():
+def download():
     for pathname in list_build_files():
-        download(pathname)
+        basename = os.path.basename(pathname)
+        if basename == "pom.xml":
+            command = [
+                "mvn",
+                "-f",
+                pathname,
+                "dependency:resolve",
+                "-Dclassifier=javadoc",
+            ]
+            logging.info("Running %s", " ".join(command))
+            subprocess.check_call(command)
+        elif basename == "build.gradle":
+            # TODO Support build.gradle
+            #
+            # IIUC one has to set the idea { module { downloadJavadoc = true } } setting,
+            # and there's no standardized way to download all the javadoc like there is
+            # for Maven. Gradle versions / gradlew might also factor in here.
+            log_warning(
+                [
+                    "Gradle build file unsupported. Please configure gradle to download sources then download them manually.",
+                    f"Build file: {pathname}",
+                ]
+            )
+        else:
+            logging.error("Unknown build file: %s", pathname)
 
 
 def search(dirname, patterns, ignorecase=False, format_=None):
@@ -277,15 +273,16 @@ if __name__ == "__main__":
         level=logging.DEBUG if args.debug else logging.INFO,
         stream=sys.stdout,
     )
-    if args.download:
-        download_all()
-    elif args.index:
-        index(
-            args.maven_repo,
-            args.gradle_repo,
-            args.output,
-            delete=args.delete,
-        )
+    if args.download or args.index:
+        if args.download:
+            download()
+        if args.index:
+            index(
+                args.maven_repo,
+                args.gradle_repo,
+                args.output,
+                delete=args.delete,
+            )
     else:
         search(
             args.output,
