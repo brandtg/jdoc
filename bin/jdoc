@@ -8,6 +8,7 @@ import json
 import zipfile
 import subprocess
 import shutil
+from itertools import groupby
 from html.parser import HTMLParser
 from urllib import request
 
@@ -15,7 +16,12 @@ DEFAULT_MAVEN = os.path.join(os.environ["HOME"], ".m2")
 DEFAULT_GRADLE = os.path.join(os.environ["HOME"], ".gradle")
 DEFAULT_OUTPUT = os.path.join(os.environ["HOME"], "jdoc")
 FILENAME_INDEX = "_index.json"
-FILENAME_CLASS = ["allclasses-noframe.html", "allclasses-index.html"]
+FILENAME_CLASS = [
+    "allclasses-noframe.html",
+    "allclasses-index.html",
+    "overview-tree.html",
+]
+JDK = "JDK"
 
 
 def index_javadoc(repodir, outputdir):
@@ -71,7 +77,12 @@ class LinkExtractor(HTMLParser):
         :param href: The link URL.
         :return: True if the link is to an HTML file that exists locally.
         """
-        return href and "http://" not in href and "https://" not in href
+        return (
+            href
+            and "http://" not in href
+            and "https://" not in href
+            and "is-external=true" not in href
+        )
 
     def handle_starttag(self, tag, attrs):
         if tag == "a":
@@ -172,7 +183,7 @@ def parse_standard_library_classnames(java_version):
             dict(
                 name=link.replace(".html", "").replace("/", "."),
                 path=base_url + link,
-                jar="JDK",
+                jar=JDK,
             )
             for link in parser.get_links()
         ]
@@ -254,7 +265,72 @@ def classname_matches(classname, patterns, flags=0):
     return True
 
 
-def find_matches(index, patterns, ignorecase=False):
+PATTERN_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)")
+
+
+def parse_version_parts(version):
+    try:
+        match = PATTERN_VERSION.search(version)
+        if match:
+            major = int(match.group(1))
+            minor = int(match.group(2))
+            patch = int(match.group(3))
+            return dict(major=major, minor=minor, patch=patch)
+    except:
+        pass
+
+
+def parse_jar(jar):
+    try:
+        tokens = jar.split("-")
+        version = tokens[-2]
+        version_parts = parse_version_parts(version)
+        artifact = "-".join(tokens[:-2])
+        return dict(
+            jar=jar,
+            artifact=artifact,
+            version=version,
+            version_parts=version_parts,
+        )
+    except:
+        pass
+
+
+def jar_sort_key(jar):
+    vp = jar.get("version_parts", {})
+    return jar.get("artifact"), vp.get("major"), vp.get("minor"), vp.get("patch")
+
+
+def group_jars(records):
+    """
+    :param records: A list of classes.
+    :return: The jars grouped by artifact, sorted by version.
+    """
+    return dict(
+        [
+            (artifact, list(group))
+            for artifact, group in groupby(
+                sorted(
+                    [
+                        parse_jar(jar)
+                        for jar in set(
+                            [
+                                record["jar"]
+                                for record in records
+                                if record["jar"] and record["jar"] != JDK
+                            ]
+                        )
+                    ],
+                    key=jar_sort_key,
+                    reverse=True,
+                ),
+                key=lambda jar: jar["artifact"],
+            )
+        ]
+    )
+
+
+def find_matches(index, patterns, ignorecase=False, latest=False):
     """
     Searches index for matching classes.
 
@@ -266,7 +342,7 @@ def find_matches(index, patterns, ignorecase=False):
     flags = 0
     if ignorecase:
         flags |= re.IGNORECASE
-    return sorted(
+    records = sorted(
         [
             classname
             for classname in index["classnames"]
@@ -274,6 +350,16 @@ def find_matches(index, patterns, ignorecase=False):
         ],
         key=lambda x: (x["name"], x["jar"]),
     )
+    if latest:
+        latest_jars = set([group[0]["jar"] for group in group_jars(records).values()])
+        records = [
+            record
+            for record in records
+            if record["jar"] is None
+            or record["jar"] == JDK
+            or record["jar"] in latest_jars
+        ]
+    return records
 
 
 def check_modified_pomfiles(index):
@@ -334,7 +420,7 @@ def download():
             logging.error("Unknown build file: %s", pathname)
 
 
-def search(dirname, patterns, ignorecase=False, format_=None):
+def search(dirname, patterns, ignorecase=False, format_=None, latest=False):
     """
     Finds classes matching patterns.
 
@@ -346,7 +432,7 @@ def search(dirname, patterns, ignorecase=False, format_=None):
     seen = set()
     index = load_index(dirname)
     check_modified_pomfiles(index)
-    for match in find_matches(index, patterns, ignorecase=ignorecase):
+    for match in find_matches(index, patterns, ignorecase=ignorecase, latest=latest):
         match_key = "/".join([match["name"], match["jar"]])
         if match_key in seen:
             continue
@@ -372,17 +458,58 @@ def search(dirname, patterns, ignorecase=False, format_=None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--index", action="store_true")
-    parser.add_argument("--download", action="store_true")
-    parser.add_argument("-m", "--maven_repo", default=DEFAULT_MAVEN)
-    parser.add_argument("-g", "--gradle_repo", default=DEFAULT_GRADLE)
-    parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
-    parser.add_argument("-i", "--ignorecase", action="store_true")
-    parser.add_argument("-f", "--format", choices=["tsv", "csv", "json"])
-    parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--delete", action="store_true")
-    parser.add_argument("patterns", nargs="*")
+    parser = argparse.ArgumentParser(
+        description="Search for Javadoc by class nmae and JAR"
+    )
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Scan for Java projects and download dependency Javadoc",
+    )
+    parser.add_argument(
+        "--index",
+        action="store_true",
+        help="Extract Javadoc from JARs and build class name index",
+    )
+    parser.add_argument(
+        "-m",
+        "--maven_repo",
+        default=DEFAULT_MAVEN,
+        help="Location of local Maven repository",
+    )
+    parser.add_argument(
+        "-g",
+        "--gradle_repo",
+        default=DEFAULT_GRADLE,
+        help="Location of local Gradle repository",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=DEFAULT_OUTPUT,
+        help="Location of extracted Javadoc and index",
+    )
+    parser.add_argument(
+        "-i", "--ignorecase", action="store_true", help="Case-insensitive matching"
+    )
+    parser.add_argument(
+        "-f",
+        "--format",
+        choices=["tsv", "csv", "json"],
+        help="Format of output results",
+    )
+    parser.add_argument("--debug", action="store_true", help="Verbose debug logging")
+    parser.add_argument(
+        "--delete", action="store_true", help="Delete any existing jdoc index"
+    )
+    parser.add_argument(
+        "--latest", action="store_true", help="Only include latest version of JARs"
+    )
+    parser.add_argument(
+        "patterns",
+        nargs="*",
+        help="Match class and JAR names against these regular expressions",
+    )
     args = parser.parse_args()
     logging.basicConfig(
         format="%(message)s",
@@ -405,4 +532,5 @@ if __name__ == "__main__":
             args.patterns,
             ignorecase=args.ignorecase,
             format_=args.format,
+            latest=args.latest,
         )
