@@ -297,7 +297,9 @@ def parse_jar(jar):
 
 
 def jar_sort_key(jar):
-    vp = jar.get("version_parts", {})
+    vp = jar.get("version_parts")
+    if not vp:
+        vp = {}
     return jar.get("artifact"), vp.get("major"), vp.get("minor"), vp.get("patch")
 
 
