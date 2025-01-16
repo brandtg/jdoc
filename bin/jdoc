@@ -8,6 +8,7 @@ import json
 import zipfile
 import subprocess
 import shutil
+import textwrap
 from itertools import groupby
 from html.parser import HTMLParser
 from urllib import request
@@ -422,8 +423,75 @@ def download():
             logging.error("Unknown build file: %s", pathname)
 
 
+class JavadocExtractor(HTMLParser):
+    # TODO inheritance
+    # TODO description
+    # TODO summary
+    def __init__(self):
+        super().__init__()
+        self.target = None
+        self.recording = None
+        self.record = {}
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        clazz = attrs.get("class", "")
+        if "title" in clazz:
+            self.target = tag
+            self.recording = "title"
+        elif "subTitle" in clazz:
+            self.target = tag
+            self.recording = "subtitle"
+        elif "description" in clazz:
+            self.target = tag
+            self.recording = "description"
+            self.record["description"] = []
+
+    def handle_data(self, data):
+        if self.recording:
+            if self.recording in ["description"]:
+                self.record[self.recording].append(data)
+            else:
+                self.record[self.recording] = data
+
+    def handle_endtag(self, tag):
+        if self.target == tag:
+            self.recording = None
+
+    def get_description_section(self, section):
+        return "\n".join(textwrap.wrap(re.sub(r"\s+", " ", section).strip(), width=80))
+
+    def get_description(self):
+        sections = ("".join(self.record["description"]).strip()).split("\n\n")
+        description = "\n\n".join(
+            [
+                sections[0],
+                *[self.get_description_section(section) for section in sections[1:]],
+            ]
+        )
+        return description
+
+    def format(self):
+        description = self.get_description()
+        return "\n\n".join([description])
+
+
+def format_javadoc(dirname, record):
+    with open(os.path.join(dirname, record["jar"], record["path"])) as f:
+        html_content = f.read()
+        parser = JavadocExtractor()
+        parser.feed(html_content)
+        return parser.format()
+
+
 def search(
-    dirname, patterns, ignorecase=False, format_=None, latest=False, short=False
+    dirname,
+    patterns,
+    ignorecase=False,
+    format_=None,
+    latest=False,
+    short=False,
+    view=False,
 ):
     """
     Finds classes matching patterns.
@@ -434,37 +502,46 @@ def search(
     :param format_: Output format, either csv, tsv, or json.
     :param latest: Only show the latest JAR version.
     :param short: Only show the class name.
+    :param view: View the class documentation on the command line.
     """
     seen = set()
     index = load_index(dirname)
     check_modified_pomfiles(index)
-    for match in find_matches(index, patterns, ignorecase=ignorecase, latest=latest):
+    for idx, match in enumerate(
+        find_matches(index, patterns, ignorecase=ignorecase, latest=latest)
+    ):
         match_key = "/".join([match["name"], match["jar"]])
         if match_key in seen:
             continue
         else:
             seen.add(match_key)
-        match_row = (
-            [match["name"]]
-            if short
-            else [
-                match["name"],
-                match["jar"],
-                (
-                    match["path"]
-                    if match["jar"] == "JDK"
-                    else "file://" + os.path.join(dirname, match["jar"], match["path"])
-                ),
-            ]
-        )
-        if not format_ or format_ == "tsv":
-            sys.stdout.write("\t".join(match_row) + "\n")
-        elif format_ == "csv":
-            sys.stdout.write(",".join(match_row) + "\n")
-        elif format_ == "json":
-            sys.stdout.write(
-                json.dumps(dict(zip(["name", "jar", "path"], match_row))) + "\n"
+        if view:
+            if idx > 0:
+                sys.stdout.write((80 * "-") + "\n")
+            sys.stdout.write(format_javadoc(dirname, match) + "\n")
+        else:
+            match_row = (
+                [match["name"]]
+                if short
+                else [
+                    match["name"],
+                    match["jar"],
+                    (
+                        match["path"]
+                        if match["jar"] == "JDK"
+                        else "file://"
+                        + os.path.join(dirname, match["jar"], match["path"])
+                    ),
+                ]
             )
+            if not format_ or format_ == "tsv":
+                sys.stdout.write("\t".join(match_row) + "\n")
+            elif format_ == "csv":
+                sys.stdout.write(",".join(match_row) + "\n")
+            elif format_ == "json":
+                sys.stdout.write(
+                    json.dumps(dict(zip(["name", "jar", "path"], match_row))) + "\n"
+                )
 
 
 if __name__ == "__main__":
@@ -519,6 +596,11 @@ if __name__ == "__main__":
         "--latest", action="store_true", help="Only include latest version of JARs"
     )
     parser.add_argument(
+        "--view",
+        action="store_true",
+        help="View the documentation for the matching class on the command line",
+    )
+    parser.add_argument(
         "patterns",
         nargs="*",
         help="Match class and JAR names against these regular expressions",
@@ -547,4 +629,5 @@ if __name__ == "__main__":
             format_=args.format,
             latest=args.latest,
             short=args.short,
+            view=args.view,
         )
