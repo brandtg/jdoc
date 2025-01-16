@@ -422,7 +422,9 @@ def download():
             logging.error("Unknown build file: %s", pathname)
 
 
-def search(dirname, patterns, ignorecase=False, format_=None, latest=False):
+def search(
+    dirname, patterns, ignorecase=False, format_=None, latest=False, short=False
+):
     """
     Finds classes matching patterns.
 
@@ -430,6 +432,8 @@ def search(dirname, patterns, ignorecase=False, format_=None, latest=False):
     :param patterns: Match classes against these regular expressions.
     :param ignorecase: Perform case-insensitive matching.
     :param format_: Output format, either csv, tsv, or json.
+    :param latest: Only show the latest JAR version.
+    :param short: Only show the class name.
     """
     seen = set()
     index = load_index(dirname)
@@ -440,15 +444,19 @@ def search(dirname, patterns, ignorecase=False, format_=None, latest=False):
             continue
         else:
             seen.add(match_key)
-        match_row = [
-            match["name"],
-            match["jar"],
-            (
-                match["path"]
-                if match["jar"] == "JDK"
-                else "file://" + os.path.join(dirname, match["jar"], match["path"])
-            ),
-        ]
+        match_row = (
+            [match["name"]]
+            if short
+            else [
+                match["name"],
+                match["jar"],
+                (
+                    match["path"]
+                    if match["jar"] == "JDK"
+                    else "file://" + os.path.join(dirname, match["jar"], match["path"])
+                ),
+            ]
+        )
         if not format_ or format_ == "tsv":
             sys.stdout.write("\t".join(match_row) + "\n")
         elif format_ == "csv":
@@ -495,6 +503,9 @@ if __name__ == "__main__":
         "-i", "--ignorecase", action="store_true", help="Case-insensitive matching"
     )
     parser.add_argument(
+        "-s", "--short", action="store_true", help="Shorten output to just class name"
+    )
+    parser.add_argument(
         "-f",
         "--format",
         choices=["tsv", "csv", "json"],
@@ -535,4 +546,5 @@ if __name__ == "__main__":
             ignorecase=args.ignorecase,
             format_=args.format,
             latest=args.latest,
+            short=args.short,
         )
