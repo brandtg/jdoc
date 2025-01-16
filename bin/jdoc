@@ -423,102 +423,13 @@ def download():
             logging.error("Unknown build file: %s", pathname)
 
 
-#  class JavadocExtractor(HTMLParser):
-#      # TODO inheritance
-#      # TODO description
-#      # TODO summary
-#      def __init__(self):
-#          super().__init__()
-#          self.target = None
-#          self.recording = None
-#          self.record = {}
-#      def handle_starttag(self, tag, attrs):
-#          attrs = dict(attrs)
-#          clazz = attrs.get("class", "")
-#          if "title" in clazz:
-#              self.target = tag
-#              self.recording = "title"
-#          elif "subTitle" in clazz:
-#              self.target = tag
-#              self.recording = "subtitle"
-#          elif "description" in clazz:
-#              self.target = tag
-#              self.recording = "description"
-#              self.record["description"] = []
-#      def handle_data(self, data):
-#          if self.recording:
-#              if self.recording in ["description"]:
-#                  self.record[self.recording].append(data)
-#              else:
-#                  self.record[self.recording] = data
-#      def handle_endtag(self, tag):
-#          if self.target == tag:
-#              self.recording = None
-#      def get_description_section(self, section):
-#          return "\n".join(textwrap.wrap(re.sub(r"\s+", " ", section).strip(), width=80))
-#      def get_description(self):
-#          sections = ("".join(self.record["description"]).strip()).split("\n\n")
-#          description = "\n\n".join(
-#              [
-#                  sections[0],
-#                  *[self.get_description_section(section) for section in sections[1:]],
-#              ]
-#          )
-#          return description
-#      def format(self):
-#          description = self.get_description()
-#          return "\n\n".join([description])
-
-
-class JavadocExtractor(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.target = None
-        self.recording = None
-        self.record = {}
-        self.table = {
-            "columns": [],
-            "rows": [],
-        }
-
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        clazz = attrs.get("class", "")
-        if "title" in clazz:
-            self.target = tag
-            self.recording = "title"
-        elif "subTitle" in clazz:
-            self.target = tag
-            self.recording = "subtitle"
-
-    def handle_data(self, data):
-        if self.recording:
-            self.record[self.recording] = data
-
-    def handle_endtag(self, tag):
-        if self.target == tag:
-            self.recording = None
-            if tag == "table":
-                self.table = {
-                    "columns": [],
-                    "rows": [],
-                }
-
-    def format(self):
-        print(self.record)
-        return """
-{subtitle} {title}
-""".format(
-            **self.record
-        ).strip()
-
-
 def format_javadoc(dirname, record):
     with open(os.path.join(dirname, record["jar"], record["path"])) as f:
         html_content = f.read()
-        parser = JavadocExtractor()
-        parser.feed(html_content)
-        return parser.format()
+        #  parser = JavadocExtractor()
+        #  parser.feed(html_content)
+        #  return parser.format()
+        return "FIXME"
 
 
 def search(
@@ -630,9 +541,13 @@ if __name__ == "__main__":
         "--delete", action="store_true", help="Delete any existing jdoc index"
     )
     parser.add_argument(
-        "--latest", action="store_true", help="Only include latest version of JARs"
+        "-l",
+        "--latest",
+        action="store_true",
+        help="Only include latest version of JARs",
     )
     parser.add_argument(
+        "-v",
         "--view",
         action="store_true",
         help="View the documentation for the matching class on the command line",
