@@ -38,9 +38,6 @@ def get_output_dirname(filename):
 def index_javadoc(repodir, outputdir):
     """
     Extracts Javadoc archives.
-
-    :param repodir: Root directory of local Maven or Gradle repo.
-    :param outputdir: Extract Javadoc into this directory.
     """
     if not os.path.exists(repodir):
         logging.warning("Repo does not exist: %s", repodir)
@@ -70,27 +67,14 @@ class LinkExtractor(HTMLParser):
     """
 
     def __init__(self, include_external=False):
-        """
-        :param include_external: If False, only consider local links.
-            This should be set to true if processing Javadoc that lives
-            on the web, e.g. the core JDK docs.
-        """
         super().__init__()
         self.include_external = include_external
         self.links = []
 
     def _is_code(self, title):
-        """
-        :param title: The link title text in a Javadoc index page.
-        :return: True if the link is to a class or interface.
-        """
         return title and ("class in" in title or "interface in" in title)
 
     def _is_local(self, href):
-        """
-        :param href: The link URL.
-        :return: True if the link is to an HTML file that exists locally.
-        """
         return (
             href
             and "http://" not in href
@@ -116,12 +100,6 @@ class LinkExtractor(HTMLParser):
 def parse_classnames(root, html_content):
     """
     Extracts all classes and interfaces from Javadoc index.
-
-    :param root: The directory containing the Javadoc.
-    :param html_content: The content of the Javadoc page.
-    :return: A list of records with the fully-qualified class name,
-        the path to the Javadoc file in the index (for viewing), and
-        the jar file it came from, which contains version information.
     """
     parser = LinkExtractor()
     parser.feed(html_content)
@@ -178,11 +156,6 @@ def get_java_version():
 def parse_standard_library_classnames(java_version):
     """
     Finds links to Javadoc for the JDK from the web.
-
-    :param java_version: The major version of Java
-    :return: A list of records with the fully-qualified class name,
-        the path to the Javadoc file in the index (for viewing), and
-        the jar file it came from, which contains version information.
     """
     base_url = (
         "https://docs.oracle.com/en/java/javase/" + str(java_version) + "/docs/api/"
@@ -210,8 +183,6 @@ def index_json(outputdir):
     The index file consists of a list of all the classes and the location
     of their Javadocs, and a mapping of all local build files to their last
     changed timestamp, so we can know if dependencies have changed.
-
-    :param outputdir: Write JSON index file into this directory.
     """
     logging.info("Building %s", FILENAME_INDEX)
     # Find classnames from standard library and libraries
@@ -239,11 +210,6 @@ def index_json(outputdir):
 def index(mavendir, gradledir, outputdir, delete=False):
     """
     Runs indexing pipeline.
-
-    :param mavendir: Location of Maven repository.
-    :param gradledir: Location of Gradle repository.
-    :param outputdir: Directory for extracted javadoc and index JSON file.
-    :param delete: If True, delete any existing outputdir before indexing.
     """
     if delete and os.path.exists(outputdir):
         logging.info("Deleting %s", outputdir)
@@ -261,22 +227,21 @@ def load_index(dirname):
         return json.load(f)
 
 
-def classname_matches(classname, patterns, flags=0):
+def classname_matches(classname, patterns, flags=0, exact_name=False):
     """
     Returns True if a class matches search patterns.
-
-    :param classname: The class record.
-    :param patterns: A list of regular expressions.
-    :param flags: Passed to ``re.search``.
-    :return: True if the class name or jar matches one of the patterns.
     """
     if patterns:
         for pattern in patterns:
-            if not re.search(pattern, classname["name"], flags) and not re.search(
-                pattern, classname["jar"], flags
+            if (exact_name and classname["name"].split(".")[-1] == pattern) or (
+                not exact_name
+                and (
+                    re.search(pattern, classname["name"], flags)
+                    or re.search(pattern, classname["jar"], flags)
+                )
             ):
-                return False
-    return True
+                return True
+    return False
 
 
 PATTERN_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)")
@@ -319,8 +284,7 @@ def jar_sort_key(jar):
 
 def group_jars(records):
     """
-    :param records: A list of classes.
-    :return: The jars grouped by artifact, sorted by version.
+    Groups artifacts by versioned jars
     """
     return dict(
         [
@@ -346,14 +310,9 @@ def group_jars(records):
     )
 
 
-def find_matches(index, patterns, ignorecase=False, latest=False):
+def find_matches(index, patterns, ignorecase=False, latest=False, exact_name=False):
     """
     Searches index for matching classes.
-
-    :param index: Structure with records for all classes.
-    :param patterns: A list of regular expressions.
-    :param ignorecase: If True perform case-insensitive matching.
-    :return: A sorted list of all classes matching a search query.
     """
     flags = 0
     if ignorecase:
@@ -362,7 +321,9 @@ def find_matches(index, patterns, ignorecase=False, latest=False):
         [
             classname
             for classname in index["classnames"]
-            if classname_matches(classname, patterns, flags=flags)
+            if classname_matches(
+                classname, patterns, flags=flags, exact_name=exact_name
+            )
         ],
         key=lambda x: (x["name"], x["jar"]),
     )
@@ -381,8 +342,6 @@ def find_matches(index, patterns, ignorecase=False, latest=False):
 def check_modified_pomfiles(index):
     """
     Logs warnings if any build files have changed since last indexing.
-
-    :param index: Structure with last modified times of all build files.
     """
     for pathname, metadata in index["pomfiles"].items():
         if metadata["last_modified"] < get_last_modified_time(pathname):
@@ -392,8 +351,6 @@ def check_modified_pomfiles(index):
 def log_warning(lines):
     """
     Logs a more visible warning.
-
-    :param lines: A list of strings.
     """
     logging.warning(120 * "!")
     for line in lines:
@@ -436,42 +393,66 @@ def download():
             logging.error("Unknown build file: %s", pathname)
 
 
-def search(dirname, patterns, ignorecase=False, format_=None, latest=False):
+def search(
+    dirname, patterns, ignorecase=False, format_=None, latest=False, exact_name=False
+):
     """
     Finds classes matching patterns.
-
-    :param dirname: Path to the index and extracted Javadocs.
-    :param patterns: Match classes against these regular expressions.
-    :param ignorecase: Perform case-insensitive matching.
-    :param format_: Output format, either csv, tsv, or json.
     """
     seen = set()
     index = load_index(dirname)
     check_modified_pomfiles(index)
-    for match in find_matches(index, patterns, ignorecase=ignorecase, latest=latest):
+    for i, match in enumerate(
+        find_matches(
+            index,
+            patterns,
+            ignorecase=ignorecase,
+            latest=latest,
+            exact_name=exact_name,
+        )
+    ):
         match_key = "/".join([match["name"], match["jar"]])
         if match_key in seen:
             continue
         else:
             seen.add(match_key)
+        match_cols = ["name", "jar", "javadoc", "source"]
         match_row = [
             match["name"],
             match["jar"],
             (
                 match["path"]
-                if match["jar"] == "JDK"
+                if match["jar"] == JDK
                 else "file://"
                 + os.path.join(dirname, DIRNAME_JAVADOC, match["jar"], match["path"])
             ),
+            (
+                None
+                if match["jar"] == JDK
+                else "file://"
+                + os.path.join(
+                    dirname,
+                    DIRNAME_SOURCES,
+                    match["jar"].replace("javadoc", "sources"),
+                    match["path"].replace(".html", ".java"),
+                )
+            ),
         ]
-        if not format_ or format_ == "tsv":
+        match_dict = dict(zip(match_cols, match_row))
+        if not format_:
+            if i > 0:
+                print()
+            print("   name: " + match_dict["name"])
+            print("    jar: " + match_dict["jar"])
+            print("javadoc: " + match_dict["javadoc"])
+            if match_dict["source"]:
+                print(" source: " + match_dict["source"])
+        elif format_ == "tsv":
             sys.stdout.write("\t".join(match_row) + "\n")
         elif format_ == "csv":
             sys.stdout.write(",".join(match_row) + "\n")
         elif format_ == "json":
-            sys.stdout.write(
-                json.dumps(dict(zip(["name", "jar", "path"], match_row))) + "\n"
-            )
+            sys.stdout.write(json.dumps(match_dict) + "\n")
 
 
 if __name__ == "__main__":
@@ -520,7 +501,16 @@ if __name__ == "__main__":
         "--delete", action="store_true", help="Delete any existing jdoc index"
     )
     parser.add_argument(
-        "--latest", action="store_true", help="Only include latest version of JARs"
+        "-l",
+        "--latest",
+        action="store_true",
+        help="Only include latest version of JARs",
+    )
+    parser.add_argument(
+        "-e",
+        "--exact_name",
+        action="store_true",
+        help="Match the class name exactly (excluding package)",
     )
     parser.add_argument(
         "patterns",
@@ -550,4 +540,5 @@ if __name__ == "__main__":
             ignorecase=args.ignorecase,
             format_=args.format,
             latest=args.latest,
+            exact_name=args.exact_name,
         )
