@@ -15,6 +15,8 @@ from urllib import request
 DEFAULT_MAVEN = os.path.join(os.environ["HOME"], ".m2")
 DEFAULT_GRADLE = os.path.join(os.environ["HOME"], ".gradle")
 DEFAULT_OUTPUT = os.path.join(os.environ["HOME"], "jdoc")
+DIRNAME_JAVADOC = "javadoc"
+DIRNAME_SOURCES = "sources"
 FILENAME_INDEX = "_index.json"
 FILENAME_CLASS = [
     "allclasses-noframe.html",
@@ -22,6 +24,15 @@ FILENAME_CLASS = [
     "overview-tree.html",
 ]
 JDK = "JDK"
+
+
+def get_output_dirname(filename):
+    if filename.endswith("-javadoc.jar"):
+        return DIRNAME_JAVADOC
+    elif filename.endswith("-sources.jar"):
+        return DIRNAME_SOURCES
+    else:
+        raise ValueError(filename)
 
 
 def index_javadoc(repodir, outputdir):
@@ -35,12 +46,15 @@ def index_javadoc(repodir, outputdir):
         logging.warning("Repo does not exist: %s", repodir)
         return
     logging.info("Indexing repo: %s", repodir)
-    os.makedirs(outputdir, exist_ok=True)
+    os.makedirs(os.path.join(outputdir, DIRNAME_JAVADOC), exist_ok=True)
+    os.makedirs(os.path.join(outputdir, DIRNAME_SOURCES), exist_ok=True)
     for root, dirnames, filenames in os.walk(repodir):
         for filename in filenames:
-            if filename.endswith("-javadoc.jar"):
+            if filename.endswith("-javadoc.jar") or filename.endswith("-sources.jar"):
                 pathname_input = os.path.join(root, filename)
-                pathname_output = os.path.join(outputdir, filename)
+                pathname_output = os.path.join(
+                    outputdir, get_output_dirname(filename), filename
+                )
                 if not os.path.exists(pathname_output):
                     logging.debug(
                         "Extracting %s to %s", pathname_input, pathname_output
@@ -203,7 +217,7 @@ def index_json(outputdir):
     # Find classnames from standard library and libraries
     classnames = []
     classnames.extend(parse_standard_library_classnames(get_java_version()))
-    for root, dirnames, filenames in os.walk(outputdir):
+    for root, dirnames, filenames in os.walk(os.path.join(outputdir, DIRNAME_JAVADOC)):
         for filename in filenames:
             if filename in FILENAME_CLASS:
                 pathname = os.path.join(root, filename)
@@ -446,7 +460,8 @@ def search(dirname, patterns, ignorecase=False, format_=None, latest=False):
             (
                 match["path"]
                 if match["jar"] == "JDK"
-                else "file://" + os.path.join(dirname, match["jar"], match["path"])
+                else "file://"
+                + os.path.join(dirname, DIRNAME_JAVADOC, match["jar"], match["path"])
             ),
         ]
         if not format_ or format_ == "tsv":
