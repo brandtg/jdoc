@@ -56,9 +56,13 @@ def index_javadoc(repodir, outputdir):
                     logging.debug(
                         "Extracting %s to %s", pathname_input, pathname_output
                     )
-                    os.makedirs(pathname_output, exist_ok=True)
-                    with zipfile.ZipFile(pathname_input) as zf:
-                        zf.extractall(pathname_output)
+                    try:
+                        os.makedirs(pathname_output, exist_ok=True)
+                        with zipfile.ZipFile(pathname_input) as zf:
+                            zf.extractall(pathname_output)
+                    except Exception as e:
+                        logging.error("Error extracting %s", pathname_input)
+                        logging.exception(e)
 
 
 class LinkExtractor(HTMLParser):
