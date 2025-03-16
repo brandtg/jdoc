@@ -7,7 +7,9 @@ import sys
 import json
 import zipfile
 import subprocess
+import socketserver
 import shutil
+from http import server as httpserver
 from itertools import groupby
 from html.parser import HTMLParser
 from urllib import request
@@ -24,6 +26,7 @@ FILENAME_CLASS = [
     "overview-tree.html",
 ]
 JDK = "JDK"
+HTTP_PORT = int(os.environ.get("HTTP_PORT", 9999))
 
 
 def get_output_dirname(filename):
@@ -516,6 +519,7 @@ if __name__ == "__main__":
         action="store_true",
         help="Match the class name exactly (excluding package)",
     )
+    parser.add_argument("--server", action="store_true")
     parser.add_argument(
         "patterns",
         nargs="*",
@@ -527,7 +531,12 @@ if __name__ == "__main__":
         level=logging.DEBUG if args.debug else logging.INFO,
         stream=sys.stdout,
     )
-    if args.download or args.index:
+    if args.server:
+        os.chdir(DEFAULT_OUTPUT)
+        with socketserver.TCPServer(("", HTTP_PORT), httpserver.SimpleHTTPRequestHandler) as httpd:
+            logging.info("Serving on %s", HTTP_PORT)
+            httpd.serve_forever()
+    elif args.download or args.index:
         if args.download:
             download()
         if args.index:
