@@ -350,9 +350,12 @@ def check_modified_pomfiles(index):
     """
     Logs warnings if any build files have changed since last indexing.
     """
-    for pathname, metadata in index["pomfiles"].items():
-        if metadata["last_modified"] < get_last_modified_time(pathname):
-            sys.stderr.write(f"! POM file has changed since last index: {pathname}\n")
+    try:
+        for pathname, metadata in index["pomfiles"].items():
+            if metadata["last_modified"] < get_last_modified_time(pathname):
+                sys.stderr.write(f"! POM file has changed since last index: {pathname}\n")
+    except Exception as e:
+        sys.stderr.write(f"Error checking modified pom files:\n {e}\n")
 
 
 def log_warning(lines):
